@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Arcade — 4 jeux, une seule adresse</title>
+<meta name="description" content="Une petite arcade maison : Snake, 2048, Motus et Morpion réunis sur un seul site, avec comptes joueurs.">
+<meta name="theme-color" content="#08080f">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Arcade">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230a0e14'/><rect x='6' y='6' width='8' height='8' rx='2' fill='%2339ff9e'/><rect x='18' y='6' width='8' height='8' rx='2' fill='%23ffb14e'/><rect x='6' y='18' width='8' height='8' rx='2' fill='%23ffce3a'/><rect x='18' y='18' width='8' height='8' rx='2' fill='%2348cae4'/></svg>">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap');
+:root{
+  --bg:#08080f; --panel:#12121f; --line:rgba(255,255,255,.1); --ink:#f0f2ff; --mute:#8189a8;
+  --snake:#39ff9e; --n2048:#ffb14e; --motus:#ff5a5f; --morpion:#48cae4;
+  --accent:#39ff9e; --danger:#ff5a5f;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:'Space Grotesk',sans-serif;color:var(--ink);min-height:100vh;
+  background:radial-gradient(125% 90% at 50% -10%, #1b1030 0%, var(--bg) 55%);
+  display:flex;align-items:center;justify-content:center;padding:28px 18px;
+}
+.wrap{width:100%;max-width:680px}
+header{text-align:center;margin-bottom:30px}
+.eyebrow{font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:var(--snake);margin-bottom:10px}
+h1{font-family:'Anton',sans-serif;font-weight:400;letter-spacing:.02em;line-height:.9;font-size:clamp(54px,16vw,104px);text-transform:uppercase}
+h1 span{background:linear-gradient(95deg,var(--snake),var(--morpion) 45%,#9b6bff 80%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--mute);margin-top:12px;font-size:15.5px}
+
+/* ---- Grille de jeux ---- */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+@media (max-width:520px){.grid{grid-template-columns:1fr}}
+.tile{
+  --c:var(--snake);
+  display:flex;align-items:center;gap:16px;text-decoration:none;color:var(--ink);
+  background:rgba(18,18,31,.72);border:1px solid var(--line);border-radius:18px;padding:18px;
+  backdrop-filter:blur(8px);transition:transform .12s ease,border-color .15s ease,box-shadow .2s ease;
+}
+.tile:hover{transform:translateY(-3px);border-color:var(--c);box-shadow:0 16px 40px rgba(0,0,0,.45), 0 0 22px -6px var(--c)}
+.tile:active{transform:translateY(-1px)}
+.ic{flex:0 0 auto;width:60px;height:60px;border-radius:13px;background:#0c0c16;border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 18px -8px var(--c)}
+.tx{flex:1;min-width:0}
+.nm{font-weight:700;font-size:20px;letter-spacing:.02em}
+.ds{color:var(--mute);font-size:13px;line-height:1.4;margin-top:3px}
+.go{flex:0 0 auto;color:var(--c);font-size:22px;font-weight:700;opacity:.55;transition:opacity .15s,transform .15s}
+.tile:hover .go{opacity:1;transform:translateX(3px)}
+.t-snake{--c:var(--snake)} .t-2048{--c:var(--n2048)} .t-motus{--c:var(--motus)} .t-morpion{--c:var(--morpion)}
+.t-pacman{--c:#ffe23d} .t-tetris{--c:#b06bff}
+footer{text-align:center;color:var(--mute);font-family:'Space Mono',monospace;font-size:12px;margin-top:26px;letter-spacing:.04em}
+
+/* ---- Barre utilisateur ---- */
+.userbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:rgba(18,18,31,.72);border:1px solid var(--line);border-radius:14px;
+  padding:12px 16px;margin-bottom:18px}
+.userbar .who{font-size:14px;color:var(--mute)} .userbar .who b{color:var(--ink)}
+.logout{cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;color:var(--ink);
+  background:transparent;border:1px solid var(--line);border-radius:10px;padding:9px 16px;transition:.18s}
+.logout:hover{border-color:var(--danger);color:var(--danger)}
+
+/* ---- Connexion ---- */
+.auth{max-width:380px;margin:0 auto;
+  background:rgba(18,18,31,.85);border:1px solid var(--line);border-radius:20px;padding:30px 26px}
+.tabs{display:flex;background:#0c0c16;border-radius:12px;padding:5px;margin-bottom:20px;gap:5px}
+.tab{flex:1;border:none;background:transparent;color:var(--mute);
+  padding:10px;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:.2s}
+.tab.active{background:var(--panel);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.field{margin-bottom:15px}
+.field label{display:block;font-size:12px;color:var(--mute);margin-bottom:7px;font-weight:600}
+.field input{width:100%;background:#0c0c16;border:1px solid var(--line);color:var(--ink);
+  padding:13px 14px;border-radius:10px;font-family:inherit;font-size:15px;outline:none;transition:.2s}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(57,255,158,.12)}
+.pass-wrap{position:relative}
+.pass-wrap input{padding-right:78px}
+.toggle-pass{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  background:transparent;border:none;color:var(--mute);font-family:inherit;font-size:12px;font-weight:600;
+  cursor:pointer;padding:6px 8px;border-radius:7px;transition:.2s}
+.toggle-pass:hover{color:var(--accent);background:#0c0c16}
+.btn{width:100%;border:none;cursor:pointer;font-family:inherit;font-size:15px;font-weight:700;
+  padding:14px;border-radius:11px;margin-top:6px;transition:.2s;
+  background:linear-gradient(95deg,var(--snake),var(--morpion));color:#03110a}
+.btn:hover{filter:brightness(1.06);transform:translateY(-1px)} .btn:active{transform:translateY(0)}
+.btn:disabled{opacity:.6;cursor:default;transform:none}
+.msg{font-size:13px;text-align:center;margin-top:15px;min-height:18px}
+.msg.error{color:var(--danger)} .msg.ok{color:var(--accent)}
+
+/* ---- Engrenage + fenêtre admin ---- */
+.gear{position:fixed;top:14px;right:14px;z-index:60;width:40px;height:40px;border-radius:50%;
+  background:var(--panel);border:1px solid var(--line);color:var(--mute);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.25s}
+.gear:hover{color:var(--accent);border-color:var(--accent);transform:rotate(45deg)}
+.gear svg{width:20px;height:20px}
+.modal{position:fixed;inset:0;z-index:70;background:rgba(4,4,10,.72);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;padding:20px}
+.modal.show{display:flex}
+.modal-card{position:relative;width:100%;max-width:400px;background:var(--panel);
+  border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.modal-close{position:absolute;top:12px;right:14px;background:transparent;border:none;
+  color:var(--mute);font-size:24px;line-height:1;cursor:pointer}
+.modal-close:hover{color:var(--ink)}
+.modal-title{font-size:20px;margin-bottom:20px}
+.admin-count{color:var(--accent);font-size:13px;font-weight:700;margin-bottom:12px}
+.user-list{list-style:none;max-height:320px;overflow:auto}
+.user-list li{display:flex;align-items:center;gap:12px;padding:11px 14px;background:#0c0c16;
+  border:1px solid var(--line);border-radius:10px;margin-bottom:8px;font-size:14px}
+.user-list li .num{color:var(--mute);font-size:12px;font-weight:700;min-width:22px}
+.user-list li .nm2{font-weight:600}
+.user-list li .rec{margin-left:auto;color:var(--mute);font-size:11.5px;font-family:'Space Mono',monospace;text-align:right;line-height:1.5}
+.user-list li.empty{justify-content:center;color:var(--mute)}
+:focus-visible{outline:3px solid var(--morpion);outline-offset:3px}
+</style>
+</head>
+<body>
+
+<!-- Engrenage admin -->
+<button class="gear" id="gearBtn" title="Administration" aria-label="Administration">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>
+</button>
+
+<!-- Fenêtre admin -->
+<div class="modal" id="adminModal">
+  <div class="modal-card">
+    <button class="modal-close" id="adminClose" aria-label="Fermer">&times;</button>
+    <h3 class="modal-title">Espace administrateur</h3>
+    <div id="adminLogin">
+      <div class="field">
+        <label for="adminId">Identifiant</label>
+        <input type="text" id="adminId" placeholder="identifiant admin">
+      </div>
+      <div class="field">
+        <label for="adminCode">Code administrateur</label>
+        <input type="password" id="adminCode" placeholder="code">
+      </div>
+      <button class="btn" id="adminBtn">Voir les comptes</button>
+      <div class="msg" id="adminMsg"></div>
+    </div>
+    <div id="adminListBox" style="display:none">
+      <p class="admin-count" id="adminCount"></p>
+      <ul class="user-list" id="userList"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Salle de jeux</div>
+    <h1><span>Arcade</span></h1>
+    <p class="sub">Quatre jeux, une seule adresse. Au clavier sur ordinateur, au doigt sur mobile.</p>
+  </header>
+
+  <!-- ÉCRAN CONNEXION -->
+  <div class="auth" id="login" style="display:none">
+    <div class="tabs">
+      <button class="tab active" id="tabLogin">Se connecter</button>
+      <button class="tab" id="tabSignup">Créer un compte</button>
+    </div>
+    <div class="field">
+      <label for="user">Identifiant</label>
+      <input type="text" id="user" autocomplete="username" placeholder="ton identifiant">
+    </div>
+    <div class="field">
+      <label for="pass">Mot de passe</label>
+      <div class="pass-wrap">
+        <input type="password" id="pass" autocomplete="current-password" placeholder="ton mot de passe">
+        <button type="button" class="toggle-pass" id="togglePass" aria-label="Afficher le mot de passe">Afficher</button>
+      </div>
+    </div>
+    <button class="btn" id="submitBtn">Se connecter</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <!-- ÉCRAN JEUX (connecté) -->
+  <div id="app" style="display:none">
+    <div class="userbar">
+      <div class="who">Connecté : <b id="who"></b></div>
+      <button class="logout" id="logout">Déconnexion</button>
+    </div>
+
+    <div class="grid">
+      <a class="tile t-snake" href="snake.html">
+        <div class="ic">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <rect x="3"  y="15" width="6" height="6" rx="1.6" fill="#39ff9e"/>
+            <rect x="10" y="15" width="6" height="6" rx="1.6" fill="#39ff9e"/>
+            <rect x="17" y="15" width="6" height="6" rx="1.6" fill="#39ff9e"/>
+            <rect x="17" y="8"  width="6" height="6" rx="1.6" fill="#00e0ff"/>
+            <circle cx="27" cy="25" r="3.4" fill="#ff3b6b"/>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">Snake</div>
+          <div class="ds">Avale les pommes, allonge-toi, ne te mords pas la queue.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+
+      <a class="tile t-2048" href="2048.html">
+        <div class="ic">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect x="3"  y="3"  width="13" height="13" rx="3" fill="#262a3d"/>
+            <rect x="20" y="3"  width="13" height="13" rx="3" fill="#3a2f1a"/>
+            <rect x="3"  y="20" width="13" height="13" rx="3" fill="#3a2f1a"/>
+            <rect x="20" y="20" width="13" height="13" rx="3" fill="#ffb14e"/>
+            <text x="26.5" y="29.5" font-family="Space Grotesk,sans-serif" font-size="9" font-weight="700" fill="#1a1205" text-anchor="middle">8</text>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">2048</div>
+          <div class="ds">Fais glisser, fusionne les tuiles, vise le 2048.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+
+      <a class="tile t-motus" href="motus.html">
+        <div class="ic">
+          <svg width="38" height="34" viewBox="0 0 38 34" fill="none">
+            <circle cx="8"  cy="12" r="5.4" fill="#e8294a"/>
+            <rect   x="14" y="6.6" width="10.8" height="10.8" rx="2" fill="#ffce3a"/>
+            <circle cx="30" cy="12" r="5.4" fill="#1b2a5e" stroke="#3a4a86" stroke-width="1.4"/>
+            <rect x="3"  y="22" width="9" height="6" rx="1.6" fill="#1b2a5e"/>
+            <rect x="14.5" y="22" width="9" height="6" rx="1.6" fill="#1b2a5e"/>
+            <rect x="26" y="22" width="9" height="6" rx="1.6" fill="#1b2a5e"/>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">Motus</div>
+          <div class="ds">Trouve le mot en six essais. Pastilles rouges et jaunes.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+
+      <a class="tile t-morpion" href="morpion.html">
+        <div class="ic">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <path d="M13 3 V31 M21 3 V31 M3 13 H31 M3 21 H31" stroke="#3a4654" stroke-width="2" stroke-linecap="round"/>
+            <path d="M5.5 5.5 L10.5 10.5 M10.5 5.5 L5.5 10.5" stroke="#ff5d73" stroke-width="2.4" stroke-linecap="round"/>
+            <circle cx="25.5" cy="8" r="3.1" stroke="#48cae4" stroke-width="2.4" fill="none"/>
+            <path d="M22.5 24.5 L27.5 29.5 M27.5 24.5 L22.5 29.5" stroke="#ff5d73" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">Morpion</div>
+          <div class="ds">Aligne trois symboles avant l'adversaire.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+
+      <a class="tile t-pacman" href="pacman.html">
+        <div class="ic">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <path d="M17 17 L31 10 A16 16 0 1 0 31 24 Z" fill="#ffe23d"/>
+            <circle cx="15" cy="9" r="2" fill="#0c0c16"/>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">Pac-Man</div>
+          <div class="ds">Avale les pastilles, fuis les fantômes, croque-les en mode bonus.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+
+      <a class="tile t-tetris" href="tetris.html">
+        <div class="ic">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+            <rect x="4"  y="4"  width="9" height="9" rx="1.5" fill="#48cae4"/>
+            <rect x="13" y="4"  width="9" height="9" rx="1.5" fill="#b06bff"/>
+            <rect x="13" y="13" width="9" height="9" rx="1.5" fill="#39ff9e"/>
+            <rect x="22" y="13" width="9" height="9" rx="1.5" fill="#ff9d4d"/>
+            <rect x="13" y="22" width="9" height="9" rx="1.5" fill="#ff4d6d"/>
+          </svg>
+        </div>
+        <div class="tx"><div class="nm">Tetris</div>
+          <div class="ds">Empile les pièces et complète des lignes pour les effacer.</div></div>
+        <div class="go">&rarr;</div>
+      </a>
+    </div>
+    <footer>6 jeux · 1 adresse · jouable partout</footer>
+  </div>
+</div>
+
+<script src="auth.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ----- Bascule connexion / jeux ----- */
+function showApp(name){
+  $('login').style.display='none';
+  $('app').style.display='block';
+  $('who').textContent = name;
+}
+function showLogin(){
+  $('app').style.display='none';
+  $('login').style.display='block';
+}
+
+/* ----- Onglets + mode ----- */
+let mode='login';
+const tabLogin=$('tabLogin'), tabSignup=$('tabSignup'),
+      submitBtn=$('submitBtn'), msg=$('msg'), userIn=$('user'), passIn=$('pass');
+function setMode(m){
+  mode=m;
+  tabLogin.classList.toggle('active', m==='login');
+  tabSignup.classList.toggle('active', m==='signup');
+  submitBtn.textContent = m==='login' ? 'Se connecter' : 'Créer le compte';
+  passIn.autocomplete = m==='login' ? 'current-password' : 'new-password';
+  msg.textContent=''; msg.className='msg';
+}
+tabLogin.onclick=()=>setMode('login');
+tabSignup.onclick=()=>setMode('signup');
+function showMsg(t, ok){ msg.textContent=t; msg.className='msg '+(ok?'ok':'error'); }
+
+async function handleSubmit(){
+  const id=userIn.value.trim(), pw=passIn.value;
+  if(!id||!pw){ showMsg('Identifiant et mot de passe obligatoires.'); return; }
+  submitBtn.disabled=true; const label=submitBtn.textContent; submitBtn.textContent='Patiente…';
+  const { ok, data } = await Arcade.api(mode==='signup'?'signup':'login', { id, password: pw });
+  submitBtn.disabled=false; submitBtn.textContent=label;
+  if(!ok){ showMsg(data.error||'Une erreur est survenue.'); return; }
+  Arcade.setSession(data.token, data.name);
+  userIn.value=''; passIn.value=''; msg.textContent='';
+  showApp(data.name);
+}
+submitBtn.onclick=handleSubmit;
+passIn.addEventListener('keydown', e=>{ if(e.key==='Enter') handleSubmit(); });
+userIn.addEventListener('keydown', e=>{ if(e.key==='Enter') passIn.focus(); });
+
+// Afficher / masquer le mot de passe
+const togglePass=$('togglePass');
+togglePass.onclick=()=>{
+  const show = passIn.type==='password';
+  passIn.type = show ? 'text' : 'password';
+  togglePass.textContent = show ? 'Masquer' : 'Afficher';
+  passIn.focus();
+};
+
+$('logout').onclick=()=>{ Arcade.clear(); showLogin(); setMode('login'); };
+
+/* ----- Au chargement : session déjà active ? ----- */
+window.addEventListener('load', async ()=>{
+  const t = Arcade.token(), n = Arcade.name();
+  if(t && n){
+    const { ok } = await Arcade.api('score', { token: t }); // valide le jeton
+    if(ok){ showApp(n); return; }
+    Arcade.clear();
+  }
+  showLogin();
+});
+
+/* ===================== ESPACE ADMIN ===================== */
+const gearBtn=$('gearBtn'), adminModal=$('adminModal'), adminClose=$('adminClose'),
+      adminLogin=$('adminLogin'), adminListBox=$('adminListBox'),
+      adminId=$('adminId'), adminCode=$('adminCode'), adminBtn=$('adminBtn'),
+      adminMsg=$('adminMsg'), userListEl=$('userList'), adminCount=$('adminCount');
+function openAdmin(){
+  adminLogin.style.display='block'; adminListBox.style.display='none';
+  adminMsg.textContent=''; adminId.value=''; adminCode.value='';
+  adminModal.classList.add('show'); adminId.focus();
+}
+function closeAdmin(){ adminModal.classList.remove('show'); }
+gearBtn.onclick=openAdmin;
+adminClose.onclick=closeAdmin;
+adminModal.addEventListener('click', e=>{ if(e.target===adminModal) closeAdmin(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAdmin(); });
+
+function recLine(scores){
+  const order=[['2048','2048'],['snake','Snake'],['pacman','Pac-Man'],['tetris','Tetris']];
+  const parts=[];
+  for(const [k,lbl] of order){ if(scores && scores[k]) parts.push(lbl+' '+scores[k]); }
+  return parts.join('<br>') || '—';
+}
+function renderUserList(users){
+  adminCount.textContent = users.length + (users.length>1?' comptes enregistrés':' compte enregistré');
+  userListEl.innerHTML='';
+  if(!users.length){
+    const li=document.createElement('li'); li.className='empty';
+    li.textContent='Aucun compte pour le moment.'; userListEl.appendChild(li);
+  } else {
+    users.forEach((u,i)=>{
+      const li=document.createElement('li');
+      li.innerHTML = `<span class="num">${i+1}</span><span class="nm2">${escapeHtml(u.name)}</span>`+
+                     `<span class="rec">${recLine(u.scores)}</span>`;
+      userListEl.appendChild(li);
+    });
+  }
+  adminLogin.style.display='none'; adminListBox.style.display='block';
+}
+async function tryAdmin(){
+  adminMsg.textContent='';
+  adminBtn.disabled=true; const label=adminBtn.textContent; adminBtn.textContent='Patiente…';
+  const { ok, data } = await Arcade.api('admin', { id: adminId.value.trim(), code: adminCode.value });
+  adminBtn.disabled=false; adminBtn.textContent=label;
+  if(!ok){ adminMsg.textContent=data.error||'Erreur.'; adminMsg.className='msg error'; return; }
+  renderUserList(data.users||[]);
+}
+adminBtn.onclick=tryAdmin;
+adminCode.addEventListener('keydown', e=>{ if(e.key==='Enter') tryAdmin(); });
+adminId.addEventListener('keydown', e=>{ if(e.key==='Enter') adminCode.focus(); });
+</script>
+</body>
+</html>

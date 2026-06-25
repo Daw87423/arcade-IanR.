@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<title>Simon</title>
+<meta name="theme-color" content="#06060e">
+<meta name="color-scheme" content="dark">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;user-select:none}
+html,body{width:100%;height:100%;font-family:'Segoe UI',system-ui,Arial,sans-serif;
+  background:radial-gradient(120% 90% at 50% -10%,#1a1030,#06060e 60%);
+  color:#f0f2ff;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  overflow:hidden;padding:16px;touch-action:manipulation}
+.title{font-size:34px;font-weight:800;letter-spacing:.06em;
+  background:linear-gradient(95deg,#39ff9e,#4dd0ff,#ff5a5f,#ffd24a);
+  -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:4px}
+.subtitle{color:#8189a8;font-size:13px;margin-bottom:18px;letter-spacing:.04em}
+
+/* Plateau circulaire */
+.board{position:relative;width:300px;height:300px;border-radius:50%;
+  background:#0c0c18;box-shadow:0 12px 50px rgba(0,0,0,.6),inset 0 0 0 3px rgba(255,255,255,.04);
+  overflow:hidden}
+.pad{position:absolute;width:50%;height:50%;cursor:pointer;transition:filter .08s,opacity .08s;
+  opacity:.42}
+.pad.lit{opacity:1;filter:brightness(1.5) saturate(1.3)}
+.pad.disabled{cursor:default}
+.green {top:0;left:0;background:#1ec96b;border-radius:100% 0 0 0;box-shadow:0 0 30px #1ec96b inset}
+.red   {top:0;right:0;background:#ff4654;border-radius:0 100% 0 0;box-shadow:0 0 30px #ff4654 inset}
+.yellow{bottom:0;left:0;background:#ffd23a;border-radius:0 0 0 100%;box-shadow:0 0 30px #ffd23a inset}
+.blue  {bottom:0;right:0;background:#3aa0ff;border-radius:0 0 100% 0;box-shadow:0 0 30px #3aa0ff inset}
+
+/* Centre */
+.center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:108px;height:108px;border-radius:50%;background:#0a0a14;
+  box-shadow:0 0 0 6px #06060e,0 6px 20px rgba(0,0,0,.6);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5}
+.center .lvl-lab{font-size:10px;color:#6b7290;letter-spacing:.18em;text-transform:uppercase}
+.center .lvl-num{font-size:38px;font-weight:800;line-height:1;color:#f0f2ff;
+  font-variant-numeric:tabular-nums}
+.center .lvl-state{font-size:10px;color:#8189a8;margin-top:3px;height:12px;letter-spacing:.05em}
+
+/* Infos */
+.stats{display:flex;gap:28px;margin-top:20px;font-variant-numeric:tabular-nums}
+.stat{text-align:center}
+.stat .v{font-size:22px;font-weight:700}
+.stat .l{font-size:10px;color:#8189a8;letter-spacing:.16em;text-transform:uppercase;margin-top:2px}
+
+/* Contrôles */
+.controls{display:flex;gap:10px;margin-top:20px;align-items:center;flex-wrap:wrap;justify-content:center}
+.btn{cursor:pointer;font-family:inherit;font-weight:700;font-size:15px;color:#06100a;
+  background:#39ff9e;border:none;border-radius:12px;padding:11px 24px;
+  box-shadow:0 0 20px rgba(57,255,158,.3);transition:transform .1s}
+.btn:active{transform:scale(.96)}
+.toggle{display:flex;align-items:center;gap:7px;font-size:13px;color:#8189a8;cursor:pointer;
+  background:#11111d;border:1.5px solid rgba(255,255,255,.1);border-radius:12px;padding:9px 14px}
+.toggle.on{border-color:#ff5a5f;color:#ff8a8f}
+.toggle .dot{width:10px;height:10px;border-radius:50%;background:#3a4250;transition:.15s}
+.toggle.on .dot{background:#ff5a5f;box-shadow:0 0 8px #ff5a5f}
+
+.msg{height:20px;margin-top:14px;font-size:14px;color:#ffd24a;font-weight:600;letter-spacing:.02em}
+</style>
+</head>
+<body>
+  <a href="index.html" class="back" style="position:fixed;top:10px;left:10px;z-index:99;font-size:13px;font-weight:700;text-decoration:none;color:#e8f0ff;background:rgba(20,22,30,.66);border:1px solid rgba(255,255,255,.18);padding:7px 13px;border-radius:10px;backdrop-filter:blur(6px)">← Menu</a>
+  <div class="title">SIMON</div>
+  <div class="subtitle">Mémorise et répète la séquence de couleurs</div>
+
+  <div class="board" id="board">
+    <div class="pad green"  data-i="0"></div>
+    <div class="pad red"    data-i="1"></div>
+    <div class="pad yellow" data-i="2"></div>
+    <div class="pad blue"   data-i="3"></div>
+    <div class="center">
+      <div class="lvl-lab">Niveau</div>
+      <div class="lvl-num" id="lvlNum">0</div>
+      <div class="lvl-state" id="lvlState"></div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v" id="scoreV">0</div><div class="l">Score</div></div>
+    <div class="stat"><div class="v" id="bestV">0</div><div class="l">Record</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="startBtn">Commencer ▶</button>
+    <div class="toggle" id="strictToggle"><span class="dot"></span>Mode strict</div>
+  </div>
+
+  <div class="msg" id="msg"></div>
+
+<script src="auth.js"></script>
+<script>
+/* ════════════════════════════════════════════════════════════
+   SIMON — jeu de mémoire
+   • Séquence qui s'allonge d'une couleur à chaque tour
+   • Sons Web Audio (une fréquence par couleur)
+   • Mode strict : une erreur = retour au début
+   • Record localStorage · accélération progressive
+   ════════════════════════════════════════════════════════════ */
+
+const PADS = [...document.querySelectorAll('.pad')];
+const lvlNum   = document.getElementById('lvlNum');
+const lvlState = document.getElementById('lvlState');
+const scoreV   = document.getElementById('scoreV');
+const bestV    = document.getElementById('bestV');
+const msgEl    = document.getElementById('msg');
+const startBtn = document.getElementById('startBtn');
+const strictToggle = document.getElementById('strictToggle');
+
+// Fréquences (gamme proche du Simon original)
+const FREQS = [329.63, 261.63, 220.00, 164.81]; // Mi, Do, La, Mi grave
+const ERROR_FREQ = 110;
+
+let sequence = [];
+let playerStep = 0;
+let best = parseInt(localStorage.getItem('simon_best')||'0');
+if(window.Arcade){
+  Arcade.loadBest('simon').then(b=>{ if(b && b>best){ best=b; bestV.textContent=best; } }).catch(()=>{});
+}
+let strict = false;
+let acceptingInput = false;
+let isPlaying = false;
+
+bestV.textContent = best;
+
+// ── Audio ──────────────────────────────────────────────────
+let audioCtx = null;
+function ensureAudio(){
+  if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+function tone(freq, dur=0.32, type='sine'){
+  if(!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type; osc.frequency.value = freq;
+  // Petite harmonique pour un son plus riche
+  const osc2 = audioCtx.createOscillator();
+  osc2.type='triangle'; osc2.frequency.value=freq*2;
+  const g2=audioCtx.createGain(); g2.gain.value=0.12;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(0.28, t+0.02);
+  gain.gain.setValueAtTime(0.28, t+dur-0.05);
+  gain.gain.linearRampToValueAtTime(0, t+dur);
+  osc.connect(gain); osc2.connect(g2); g2.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t); osc2.start(t); osc.stop(t+dur); osc2.stop(t+dur);
+}
+
+// ── Allumage visuel + son ─────────────────────────────────
+function lightPad(i, dur=320){
+  PADS[i].classList.add('lit');
+  tone(FREQS[i], dur/1000);
+  return new Promise(res => setTimeout(()=>{ PADS[i].classList.remove('lit'); setTimeout(res, 110); }, dur));
+}
+
+// Vitesse de lecture selon la longueur (accélère progressivement)
+function playbackSpeed(len){
+  if(len <= 5)  return 360;
+  if(len <= 9)  return 300;
+  if(len <= 13) return 240;
+  return 190;
+}
+
+// ── Lecture de la séquence ─────────────────────────────────
+async function playSequence(){
+  acceptingInput = false;
+  lvlState.textContent = 'observe…';
+  setPadsDisabled(true);
+  await wait(600);
+  const dur = playbackSpeed(sequence.length);
+  for(const i of sequence){
+    await lightPad(i, dur);
+  }
+  acceptingInput = true;
+  playerStep = 0;
+  lvlState.textContent = 'à toi !';
+  setPadsDisabled(false);
+}
+
+// ── Tour suivant ───────────────────────────────────────────
+function nextRound(){
+  sequence.push(Math.floor(Math.random()*4));
+  lvlNum.textContent = sequence.length;
+  scoreV.textContent = sequence.length - 1;
+  playSequence();
+}
+
+// ── Entrée joueur ──────────────────────────────────────────
+async function handlePad(i){
+  if(!acceptingInput || !isPlaying) return;
+  ensureAudio();
+  await flashPad(i);
+
+  if(i === sequence[playerStep]){
+    playerStep++;
+    if(playerStep === sequence.length){
+      // Séquence réussie
+      const score = sequence.length;
+      if(score > best){ best = score; bestV.textContent = best; localStorage.setItem('simon_best', best); if(window.Arcade) Arcade.saveBest('simon', best); }
+      acceptingInput = false;
+      lvlState.textContent = '✓';
+      await wait(560);
+      nextRound();
+    }
+  } else {
+    // Erreur
+    wrongAnswer();
+  }
+}
+
+async function flashPad(i){
+  PADS[i].classList.add('lit');
+  tone(FREQS[i], 0.28);
+  await wait(180);
+  PADS[i].classList.remove('lit');
+  await wait(40);
+}
+
+async function wrongAnswer(){
+  acceptingInput = false;
+  isPlaying = false;
+  setPadsDisabled(true);
+  // Son d'erreur + flash global
+  tone(ERROR_FREQ, 0.6, 'sawtooth');
+  for(const p of PADS) p.classList.add('lit');
+  await wait(300);
+  for(const p of PADS) p.classList.remove('lit');
+
+  const reached = sequence.length - 1;
+
+  if(strict){
+    msgEl.textContent = `Raté ! Tu as atteint le niveau ${reached}.`;
+    lvlState.textContent = '';
+    resetGame();
+  } else {
+    // Mode normal : on rejoue la même séquence
+    msgEl.textContent = `Oups ! On rejoue la séquence…`;
+    await wait(900);
+    msgEl.textContent = '';
+    playSequence();
+  }
+}
+
+// ── Démarrage / reset ──────────────────────────────────────
+function startGame(){
+  ensureAudio();
+  sequence = [];
+  playerStep = 0;
+  isPlaying = true;
+  msgEl.textContent = '';
+  scoreV.textContent = '0';
+  startBtn.textContent = 'Recommencer ↻';
+  nextRound();
+}
+
+function resetGame(){
+  isPlaying = false;
+  sequence = [];
+  lvlNum.textContent = '0';
+  scoreV.textContent = '0';
+  startBtn.textContent = 'Commencer ▶';
+  setPadsDisabled(true);
+}
+
+// ── Helpers ────────────────────────────────────────────────
+function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
+function setPadsDisabled(d){ PADS.forEach(p => p.classList.toggle('disabled', d)); }
+
+// ── Événements ─────────────────────────────────────────────
+PADS.forEach(p => {
+  const i = +p.dataset.i;
+  p.addEventListener('pointerdown', e => { e.preventDefault(); handlePad(i); });
+});
+
+startBtn.addEventListener('click', startGame);
+
+strictToggle.addEventListener('click', () => {
+  strict = !strict;
+  strictToggle.classList.toggle('on', strict);
+});
+
+// Clavier : touches 1-4 ou flèches
+const KEYMAP = { '1':0,'2':1,'3':2,'4':3,
+  q:0, p:1, a:2, m:3 };
+addEventListener('keydown', e => {
+  if(e.key === ' ' || e.code === 'Space'){ e.preventDefault(); if(!isPlaying) startGame(); return; }
+  const i = KEYMAP[e.key.toLowerCase()];
+  if(i !== undefined) handlePad(i);
+});
+
+// État initial
+setPadsDisabled(true);
+</script>
+</body>
+</html>

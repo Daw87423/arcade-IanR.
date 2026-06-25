@@ -1,0 +1,9 @@
+{
+  "name": "arcade-netlify",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Arcade (Snake, 2048, Motus, Morpion) avec comptes joueurs — backend Netlify Functions + Blobs",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.0"
+  }
+}

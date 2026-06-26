@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pong</title>
+<style>
+  :root{
+    --bg:#05060a; --neon:#23e7ff; --neon2:#ff2e88;
+    --ball:#fff7d6; --ink:#dff6ff; --dim:#5c7088;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(circle at 50% 0%, #0b1224 0%, var(--bg) 60%);
+    color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100dvh;gap:14px;overflow:hidden;-webkit-tap-highlight-color:transparent;
+  }
+  h1{font-size:clamp(22px,6vw,38px);letter-spacing:.5em;font-weight:800;text-transform:uppercase;
+    padding-left:.5em;color:#fff;text-shadow:0 0 8px var(--neon),0 0 22px var(--neon);}
+  .wrap{position:relative;width:min(92vw,820px);aspect-ratio:4/3}
+  canvas{width:100%;height:100%;display:block;border-radius:14px;
+    background:linear-gradient(180deg,#070a12,#04060c);border:1px solid #15324a;
+    box-shadow:0 0 0 1px #0a1828,0 24px 60px -20px #000,inset 0 0 60px -20px var(--neon);touch-action:none;}
+  .menu{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;background:rgba(4,6,12,.78);backdrop-filter:blur(3px);border-radius:14px;text-align:center;padding:20px;}
+  .menu.hidden{display:none}
+  .menu p{color:var(--dim);font-size:14px;line-height:1.7;max-width:34ch}
+  .menu .big{font-size:clamp(18px,4vw,26px);color:#fff;letter-spacing:.15em;text-transform:uppercase}
+  .label{color:var(--dim);font-size:12px;letter-spacing:.2em;text-transform:uppercase}
+  .btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  button{font:inherit;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#04060c;
+    background:var(--neon);border:none;border-radius:10px;padding:12px 20px;cursor:pointer;
+    transition:transform .08s,box-shadow .2s;box-shadow:0 0 18px -2px var(--neon);}
+  button.alt{background:var(--neon2);box-shadow:0 0 18px -2px var(--neon2)}
+  button:hover{transform:translateY(-2px)} button:active{transform:translateY(0)}
+  button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+  .hint{color:var(--dim);font-size:12px;letter-spacing:.08em;text-align:center}
+  .back{position:fixed;top:10px;left:10px;z-index:99;font-size:13px;font-weight:700;text-decoration:none;color:#e8f0ff;background:rgba(20,22,30,.66);border:1px solid rgba(255,255,255,.18);padding:7px 13px;border-radius:10px;backdrop-filter:blur(6px)}
+</style>
+</head>
+<body>
+  <a href="index.html" class="back">← Menu</a>
+  <h1>Pong</h1>
+  <div class="wrap">
+    <canvas id="c" width="800" height="600"></canvas>
+    <div class="menu" id="menu">
+      <div class="big" id="title">Pong</div>
+      <p id="sub">Premier à 11 points gagne.</p>
+      <div class="label">1 joueur — niveau</div>
+      <div class="btns">
+        <button data-d="easy">Facile</button>
+        <button data-d="normal">Normal</button>
+        <button data-d="hard">Difficile</button>
+      </div>
+      <div class="btns"><button id="two" class="alt">2 joueurs</button></div>
+    </div>
+  </div>
+  <div class="hint">Gauche : W / S &nbsp;·&nbsp; Droite : ↑ / ↓ &nbsp;·&nbsp; P : pause &nbsp;·&nbsp; tactile : glisser</div>
+
+<script src="auth.js"></script>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const W=cv.width,H=cv.height,menu=document.getElementById('menu');
+const title=document.getElementById('title'),sub=document.getElementById('sub');
+const PADDLE_H=96,PADDLE_W=14,MARGIN=26,BALL_R=9,WIN=11;
+const css=getComputedStyle(document.documentElement);
+const NEON=css.getPropertyValue('--neon').trim(),NEON2=css.getPropertyValue('--neon2').trim(),BALLC=css.getPropertyValue('--ball').trim();
+
+const DIFF={
+  easy:  {jitter:66, maxv:5,  factor:0.10, serve:5.6, label:'Facile'},
+  normal:{jitter:40, maxv:7,  factor:0.16, serve:6.2, label:'Normal'},
+  hard:  {jitter:12, maxv:10, factor:0.24, serve:7.0, label:'Difficile'},
+};
+let mode=1,ai=DIFF.normal,running=false,paused=false,over=false;
+let left,right,ball,particles=[];
+
+let actx;
+function beep(f,d=0.05,t='square',v=0.05){try{
+  if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  const o=actx.createOscillator(),g=actx.createGain();o.type=t;o.frequency.value=f;
+  g.gain.value=v;o.connect(g);g.connect(actx.destination);o.start();
+  g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+d);o.stop(actx.currentTime+d);
+}catch(e){}}
+
+function newPaddle(x){return {x,y:H/2-PADDLE_H/2,vy:0,target:null,score:0};}
+function resetBall(dir){
+  const ang=(Math.random()*0.6-0.3),speed=ai.serve;
+  ball={x:W/2,y:H/2,vx:Math.cos(ang)*speed*(dir||(Math.random()<.5?-1:1)),
+    vy:Math.sin(ang)*speed*(Math.random()<.5?-1:1),speed,freeze:45};
+}
+function start(m,d){
+  mode=m; ai=DIFF[d||'normal'];
+  left=newPaddle(MARGIN);right=newPaddle(W-MARGIN-PADDLE_W);
+  resetBall();particles=[];running=true;paused=false;over=false;menu.classList.add('hidden');
+}
+function spawnBurst(x,y,color){for(let i=0;i<14;i++){const a=Math.random()*Math.PI*2,s=1+Math.random()*4;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,color});}}
+
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;
+  if(e.key.toLowerCase()==='p'&&running&&!over)paused=!paused;
+  if([' ','arrowup','arrowdown'].includes(e.key.toLowerCase()))e.preventDefault();});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+function handleTouch(e){e.preventDefault();const r=cv.getBoundingClientRect();
+  for(const t of e.touches){const x=(t.clientX-r.left)/r.width*W,y=(t.clientY-r.top)/r.height*H;
+    if(x<W/2)left.target=y;else if(mode===2)right.target=y;}}
+cv.addEventListener('touchstart',handleTouch,{passive:false});
+cv.addEventListener('touchmove',handleTouch,{passive:false});
+cv.addEventListener('touchend',e=>{if(e.touches.length===0){left.target=null;right.target=null;}},{passive:false});
+
+document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{beep(660);start(1,b.dataset.d);});
+document.getElementById('two').onclick=()=>{beep(660);start(2);};
+
+function movePaddle(p,up,down){
+  const accel=1.4,max=9,fric=0.78;
+  if(p.target!=null){const d=p.target-(p.y+PADDLE_H/2);p.vy=Math.max(-max,Math.min(max,d*0.3));}
+  else{if(up)p.vy-=accel;if(down)p.vy+=accel;if(!up&&!down)p.vy*=fric;p.vy=Math.max(-max,Math.min(max,p.vy));}
+  p.y+=p.vy;if(p.y<0){p.y=0;p.vy=0}if(p.y>H-PADDLE_H){p.y=H-PADDLE_H;p.vy=0}
+}
+function aiMove(p){
+  let aimY=H/2;
+  if(ball.vx>0)aimY=ball.y+ball.vy*((p.x-ball.x)/Math.max(1,ball.vx))*0.55;
+  aimY+=(Math.random()-0.5)*ai.jitter;
+  const center=p.y+PADDLE_H/2;
+  if(Math.abs(aimY-center)>14)p.vy=Math.max(-ai.maxv,Math.min(ai.maxv,(aimY-center)*ai.factor));
+  else p.vy*=0.7;
+  p.y+=p.vy;if(p.y<0)p.y=0;if(p.y>H-PADDLE_H)p.y=H-PADDLE_H;
+}
+function hit(p,isLeft){
+  const within=ball.y>p.y-BALL_R&&ball.y<p.y+PADDLE_H+BALL_R;
+  const edge=isLeft?ball.x-BALL_R<=p.x+PADDLE_W:ball.x+BALL_R>=p.x;
+  const past=isLeft?ball.x>p.x:ball.x<p.x+PADDLE_W;
+  if(within&&edge&&past){
+    const rel=((ball.y-(p.y+PADDLE_H/2))/(PADDLE_H/2)),ang=rel*(Math.PI*0.38);
+    ball.speed=Math.min(ball.speed+0.45,15);const dir=isLeft?1:-1;
+    ball.vx=Math.cos(ang)*ball.speed*dir;ball.vy=Math.sin(ang)*ball.speed+p.vy*0.25;
+    ball.x=isLeft?p.x+PADDLE_W+BALL_R:p.x-BALL_R;
+    spawnBurst(ball.x,ball.y,isLeft?NEON:NEON2);beep(isLeft?440:520,.04);
+  }
+}
+function score(side){
+  if(side==='left')right.score++;else left.score++;
+  spawnBurst(ball.x,ball.y,'#ffffff');beep(180,.18,'sawtooth',.06);
+  if(left.score>=WIN||right.score>=WIN){
+    over=true;running=false;
+    const winner=left.score>WIN-1?(mode===1?'Toi':'Joueur 1'):(mode===1?'CPU ('+ai.label+')':'Joueur 2');
+    title.textContent=Math.max(left.score,right.score)+' – '+Math.min(left.score,right.score);
+    sub.textContent=winner+' gagne !';menu.classList.remove('hidden');
+  }else resetBall(side==='left'?1:-1);
+}
+function update(){
+  if(!running||paused||over)return;
+  movePaddle(left,keys['w'],keys['s']);
+  if(mode===2)movePaddle(right,keys['arrowup'],keys['arrowdown']);else aiMove(right);
+  if(ball.freeze>0)ball.freeze--;else{ball.x+=ball.vx;ball.y+=ball.vy;}
+  if(ball.y-BALL_R<0){ball.y=BALL_R;ball.vy*=-1;beep(300,.03);}
+  if(ball.y+BALL_R>H){ball.y=H-BALL_R;ball.vy*=-1;beep(300,.03);}
+  hit(left,true);hit(right,false);
+  if(ball.x<-20)score('left');else if(ball.x>W+20)score('right');
+  for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vy+=0.06;p.life-=0.03;}
+  particles=particles.filter(p=>p.life>0);
+}
+function drawNet(){ctx.save();ctx.strokeStyle='rgba(90,130,170,.35)';ctx.lineWidth=4;
+  ctx.setLineDash([14,18]);ctx.beginPath();ctx.moveTo(W/2,0);ctx.lineTo(W/2,H);ctx.stroke();ctx.restore();}
+function glowRect(x,y,w,h,color){ctx.save();ctx.shadowColor=color;ctx.shadowBlur=22;ctx.fillStyle=color;ctx.fillRect(x,y,w,h);ctx.restore();}
+function drawScore(){ctx.save();ctx.font='700 64px "Segoe UI",sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='rgba(35,231,255,.22)';ctx.fillText(left.score,W/2-90,84);
+  ctx.fillStyle='rgba(255,46,136,.22)';ctx.fillText(right.score,W/2+90,84);ctx.restore();}
+function render(){
+  ctx.clearRect(0,0,W,H);drawScore();drawNet();
+  ctx.save();ctx.shadowColor=BALLC;ctx.shadowBlur=24;ctx.fillStyle=BALLC;
+  ctx.beginPath();ctx.arc(ball.x,ball.y,BALL_R,0,7);ctx.fill();ctx.restore();
+  glowRect(left.x,left.y,PADDLE_W,PADDLE_H,NEON);glowRect(right.x,right.y,PADDLE_W,PADDLE_H,NEON2);
+  for(const p of particles){ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);ctx.globalAlpha=1;}
+  if(paused){ctx.fillStyle='rgba(4,6,12,.6)';ctx.fillRect(0,0,W,H);ctx.fillStyle='#fff';
+    ctx.font='700 40px "Segoe UI",sans-serif';ctx.textAlign='center';ctx.fillText('PAUSE',W/2,H/2);}
+}
+function loop(){update();render();requestAnimationFrame(loop);}
+left=newPaddle(MARGIN);right=newPaddle(W-MARGIN-PADDLE_W);resetBall();loop();
+</script>
+</body>
+</html>

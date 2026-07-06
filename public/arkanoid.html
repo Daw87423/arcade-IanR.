@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Arkanoid</title>
+<meta name="theme-color" content="#08080f">
+<meta name="color-scheme" content="dark">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@500;700&family=Space+Mono:wght@700&display=swap');
+:root{--bg:#08080f;--panel:#11111d;--line:rgba(255,255,255,.1);--ink:#f0f2ff;--mute:#8189a8;--acc:#ff6b3d;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Space Grotesk',sans-serif;background:radial-gradient(120% 80% at 50% -5%,#1a0a02,var(--bg) 55%);
+  color:var(--ink);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.wrap{width:100%;max-width:460px;text-align:center}
+.head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px}
+.title{font-family:'Anton',sans-serif;font-size:34px;letter-spacing:.04em;text-transform:uppercase;
+  background:linear-gradient(95deg,var(--acc),#ffb14e);-webkit-background-clip:text;background-clip:text;color:transparent}
+.scores{display:flex;gap:14px;font-family:'Space Mono',monospace}
+.sc{text-align:right}.sc .lab{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+.sc .val{font-size:20px;font-weight:700;color:var(--acc)}
+.board-wrap{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#05050c;display:inline-block;width:100%}
+canvas{display:block;width:100%;height:auto;touch-action:none;cursor:none}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(8,8,15,.9);backdrop-filter:blur(4px);gap:8px;padding:24px;text-align:center}
+.overlay.hide{display:none}
+.ov-t{font-family:'Anton',sans-serif;font-size:30px;text-transform:uppercase}
+.ov-s{color:var(--mute);font-size:14px;max-width:300px;line-height:1.5}
+.btn{cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;margin-top:8px;
+  background:var(--acc);color:#1a0800;border:none;border-radius:12px;padding:12px 28px;
+  box-shadow:0 0 22px rgba(255,107,61,.35)}
+.btn:active{transform:scale(.97)}
+.lives{display:flex;gap:7px;align-items:center;justify-content:center;margin-top:12px;min-height:22px}
+.lives span{display:inline-block;width:22px;height:8px;background:var(--acc);border-radius:4px;
+  box-shadow:0 0 8px rgba(255,107,61,.5)}
+.hint{color:var(--mute);font-size:12px;margin-top:10px;font-family:'Space Mono',monospace}
+.back{position:fixed;top:12px;left:12px;z-index:99;font-size:13px;font-weight:700;text-decoration:none;
+  color:#e8f0ff;background:rgba(20,22,30,.66);border:1px solid rgba(255,255,255,.18);
+  padding:7px 13px;border-radius:10px;backdrop-filter:blur(6px)}
+</style>
+</head>
+<body>
+<a href="index.html" class="back">← Menu</a>
+<div class="wrap">
+  <div class="head">
+    <div class="title">Arkanoid</div>
+    <div class="scores">
+      <div class="sc"><div class="lab">Score</div><div class="val" id="scoreEl">0</div></div>
+      <div class="sc"><div class="lab">Record</div><div class="val" id="bestEl">—</div></div>
+    </div>
+  </div>
+  <div class="board-wrap">
+    <canvas id="cv" width="420" height="560"></canvas>
+    <div class="overlay" id="ov">
+      <div class="ov-t" id="ovT">Arkanoid</div>
+      <div class="ov-s" id="ovS">Renvoie la balle avec la raquette, détruis toutes les briques pour passer au niveau suivant.</div>
+      <button class="btn" id="playBtn">Jouer ▶</button>
+    </div>
+  </div>
+  <div class="lives" id="livesEl"></div>
+  <div class="hint">Souris / doigt → déplace la raquette · Espace ou tap → lance la balle</div>
+</div>
+<script src="auth.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════
+   ARKANOID — 10 niveaux, raquette, balle, briques HP 1-3
+   ══════════════════════════════════════════════════════════ */
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const CV_W = 420, CV_H = 560;
+
+// ── Briques ────────────────────────────────────────────────
+const BC = 10, BW = 37, BH = 13, BG = 3;
+const BX0 = Math.round((CV_W - (BC*BW+(BC-1)*BG)) / 2);
+const BY0 = 52;
+const BP  = BH + BG;  // row pitch
+
+// ── Niveaux (10 cols × N rows, 0=vide, 1-3=HP) ────────────
+const LEVELS = [
+  [[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]],
+  [[2,2,2,2,2,2,2,2,2,2],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]],
+  [[2,1,2,1,2,1,2,1,2,1],[1,2,1,2,1,2,1,2,1,2],[2,1,2,1,2,1,2,1,2,1],[1,2,1,2,1,2,1,2,1,2],[1,1,1,1,1,1,1,1,1,1]],
+  [[3,0,0,0,0,0,0,0,0,3],[2,2,0,0,0,0,0,0,2,2],[1,1,1,0,0,0,0,1,1,1],[1,1,1,1,0,0,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]],
+  [[3,3,3,3,3,3,3,3,3,3],[3,0,0,0,0,0,0,0,0,3],[3,0,2,2,2,2,2,2,0,3],[3,0,2,0,0,0,0,2,0,3],[3,0,2,2,2,2,2,2,0,3],[3,0,0,0,0,0,0,0,0,3],[3,3,3,3,3,3,3,3,3,3]],
+  [[0,0,0,0,1,1,0,0,0,0],[0,0,0,1,2,2,1,0,0,0],[0,0,1,2,3,3,2,1,0,0],[0,1,2,3,2,2,3,2,1,0],[0,0,1,2,3,3,2,1,0,0],[0,0,0,1,2,2,1,0,0,0],[0,0,0,0,1,1,0,0,0,0]],
+  [[3,3,3,3,3,3,3,3,3,3],[3,3,3,3,3,3,3,3,3,3],[2,2,2,2,2,2,2,2,2,2],[2,2,2,2,2,2,2,2,2,2],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]],
+  [[3,0,3,0,3,0,3,0,3,0],[0,3,0,3,0,3,0,3,0,3],[2,0,2,0,2,0,2,0,2,0],[0,2,0,2,0,2,0,2,0,2],[1,0,1,0,1,0,1,0,1,0],[0,1,0,1,0,1,0,1,0,1]],
+  [[0,0,0,0,3,3,0,0,0,0],[0,0,0,0,3,3,0,0,0,0],[3,3,3,3,3,3,3,3,3,3],[3,3,3,3,3,3,3,3,3,3],[0,0,0,0,3,3,0,0,0,0],[0,0,0,0,3,3,0,0,0,0]],
+  [[3,2,3,2,3,2,3,2,3,2],[2,3,2,3,2,3,2,3,2,3],[3,2,1,2,1,1,2,1,2,3],[2,1,2,1,2,2,1,2,1,2],[3,2,1,2,1,1,2,1,2,3],[2,3,2,3,2,3,2,3,2,3],[3,2,3,2,3,2,3,2,3,2]],
+];
+
+// ── Palette briques ────────────────────────────────────────
+const BRICK_COLORS = ['','#7b68ee','#39c5a0','#ff8c42'];
+const BRICK_SCORES = [0, 10, 20, 30];
+
+// ── Vitesses ───────────────────────────────────────────────
+const PAD_W = 74, PAD_H = 10, PAD_Y = CV_H - 28, BALL_R = 7;
+const BASE_SPEED = 285;
+
+// ── État ───────────────────────────────────────────────────
+let ball, paddle, bricks, lives, score, best = 0, level, raf, lastT;
+let running = false, ready = false;  // ready = balle collée à la raquette
+
+const scoreEl = document.getElementById('scoreEl');
+const bestEl  = document.getElementById('bestEl');
+const livesEl = document.getElementById('livesEl');
+const ov      = document.getElementById('ov');
+const ovT     = document.getElementById('ovT');
+const ovS     = document.getElementById('ovS');
+
+// ── Record ─────────────────────────────────────────────────
+Arcade.loadBest('arkanoid').then(b => { best = b || 0; bestEl.textContent = best || '—'; });
+
+// ── Initialisation ─────────────────────────────────────────
+function buildBricks(lvl) {
+  const layout = LEVELS[(lvl - 1) % LEVELS.length];
+  bricks = [];
+  layout.forEach((row, ri) => {
+    row.forEach((hp, ci) => {
+      if (hp > 0) bricks.push({ ci, ri, hp, maxHp: hp,
+        x: BX0 + ci * (BW + BG), y: BY0 + ri * BP, w: BW, h: BH });
+    });
+  });
+}
+
+function resetBall() {
+  const cx = paddle.x + PAD_W / 2;
+  ball = { x: cx, y: PAD_Y - BALL_R - 2, dx: 0, dy: 0, prevX: cx, prevY: PAD_Y - BALL_R - 2 };
+  ready = true;
+}
+
+function launch() {
+  if (!ready) return;
+  ready = false;
+  const speed = Math.min(BASE_SPEED + (level - 1) * 22, 490);
+  const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.7;
+  ball.dx = Math.cos(angle) * speed;
+  ball.dy = Math.sin(angle) * speed;
+}
+
+function startLevel(lvl) {
+  level = lvl;
+  buildBricks(level);
+  paddle = { x: CV_W / 2 - PAD_W / 2 };
+  resetBall();
+}
+
+function startGame() {
+  score = 0; lives = 3; level = 1;
+  scoreEl.textContent = '0';
+  renderLives();
+  ov.classList.add('hide');
+  startLevel(1);
+  running = true;
+  lastT = performance.now();
+  raf = requestAnimationFrame(loop);
+}
+
+function renderLives() {
+  livesEl.innerHTML = '';
+  for (let i = 0; i < Math.max(0, lives); i++) {
+    livesEl.appendChild(document.createElement('span'));
+  }
+}
+
+// ── Boucle ─────────────────────────────────────────────────
+function loop(now) {
+  if (!running) return;
+  const dt = Math.min((now - lastT) / 1000, 0.033);
+  lastT = now;
+  update(dt);
+  draw();
+  raf = requestAnimationFrame(loop);
+}
+
+function update(dt) {
+  if (ready) { ball.x = paddle.x + PAD_W / 2; ball.y = PAD_Y - BALL_R - 2; return; }
+
+  ball.prevX = ball.x; ball.prevY = ball.y;
+  ball.x += ball.dx * dt;
+  ball.y += ball.dy * dt;
+
+  // Murs gauche / droite
+  if (ball.x - BALL_R < 0)     { ball.x = BALL_R;      ball.dx = Math.abs(ball.dx); }
+  if (ball.x + BALL_R > CV_W)  { ball.x = CV_W-BALL_R; ball.dx = -Math.abs(ball.dx); }
+  // Plafond
+  if (ball.y - BALL_R < 0)     { ball.y = BALL_R;      ball.dy = Math.abs(ball.dy); }
+
+  // Raquette (uniquement si balle descend)
+  if (ball.dy > 0) {
+    const py = PAD_Y, ph = PAD_H;
+    if (ball.y + BALL_R >= py && ball.prevY + BALL_R <= py + ph &&
+        ball.x >= paddle.x - BALL_R && ball.x <= paddle.x + PAD_W + BALL_R) {
+      ball.y = py - BALL_R;
+      const rel = (ball.x - (paddle.x + PAD_W / 2)) / (PAD_W / 2);
+      const ang = Math.PI / 2 - rel * (Math.PI / 3);
+      const spd = Math.hypot(ball.dx, ball.dy);
+      ball.dx = Math.cos(ang) * spd;
+      ball.dy = -Math.abs(Math.sin(ang) * spd);
+    }
+  }
+
+  // Briques
+  for (let i = bricks.length - 1; i >= 0; i--) {
+    const b = bricks[i];
+    if (ball.x + BALL_R > b.x && ball.x - BALL_R < b.x + b.w &&
+        ball.y + BALL_R > b.y && ball.y - BALL_R < b.y + b.h) {
+      b.hp--;
+      score += BRICK_SCORES[b.maxHp] || 10;
+      scoreEl.textContent = score;
+      if (score > best) { best = score; bestEl.textContent = best; }
+      if (b.hp <= 0) bricks.splice(i, 1);
+      // Détermination axe de rebond
+      const oL = (ball.x + BALL_R) - b.x;
+      const oR = (b.x + b.w) - (ball.x - BALL_R);
+      const oT = (ball.y + BALL_R) - b.y;
+      const oB = (b.y + b.h) - (ball.y - BALL_R);
+      if (Math.min(oL, oR) < Math.min(oT, oB)) {
+        ball.dx *= -1;
+        ball.x += oL < oR ? -oL * 0.5 : oR * 0.5;
+      } else {
+        ball.dy *= -1;
+        ball.y += oT < oB ? -oT * 0.5 : oB * 0.5;
+      }
+      break;
+    }
+  }
+
+  // Balle perdue
+  if (ball.y > CV_H + 20) {
+    lives--;
+    renderLives();
+    if (lives <= 0) { gameOver(); return; }
+    resetBall();
+  }
+
+  // Niveau terminé
+  if (bricks.length === 0) {
+    score += level * 100;
+    scoreEl.textContent = score;
+    if (score > best) { best = score; bestEl.textContent = best; }
+    startLevel(level + 1);
+  }
+}
+
+// ── Fin de partie ──────────────────────────────────────────
+function gameOver() {
+  running = false;
+  if (raf) cancelAnimationFrame(raf);
+  Arcade.saveBest('arkanoid', score);
+  ovT.textContent = 'Partie terminée';
+  ovS.innerHTML = `Score&nbsp;: <b>${score}</b> — Niveau atteint&nbsp;: <b>${level}</b><br>Record&nbsp;: <b>${best}</b>`;
+  document.getElementById('playBtn').textContent = 'Rejouer ▶';
+  ov.classList.remove('hide');
+}
+
+// ── Rendu ──────────────────────────────────────────────────
+function rr(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, CV_W, CV_H);
+  ctx.fillStyle = '#05050c'; ctx.fillRect(0, 0, CV_W, CV_H);
+
+  // Niveau
+  ctx.font = '700 12px "Space Mono"';
+  ctx.fillStyle = '#8189a8';
+  ctx.textAlign = 'center';
+  ctx.fillText(`NIVEAU  ${level}`, CV_W / 2, 36);
+
+  // Briques
+  for (const b of bricks) {
+    const base = BRICK_COLORS[Math.min(b.maxHp, 3)];
+    const fade = b.hp < b.maxHp ? 0.62 : 1;
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = base; rr(b.x, b.y, b.w, b.h, 3); ctx.fill();
+    // Reflet supérieur
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; rr(b.x+1,b.y+1,b.w-2,4,1.5); ctx.fill();
+    // Ombre inférieure
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; rr(b.x+1,b.y+b.h-4,b.w-2,3,1.5); ctx.fill();
+    ctx.globalAlpha = 1;
+    // HP restant (pour les briques à plusieurs HP)
+    if (b.maxHp > 1) {
+      ctx.font = `bold ${Math.max(8,BH-4)}px "Space Grotesk"`;
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.hp, b.x + b.w/2, b.y + b.h - 2);
+    }
+  }
+
+  // Raquette
+  const pg = ctx.createLinearGradient(paddle.x, 0, paddle.x + PAD_W, 0);
+  pg.addColorStop(0, '#ff4a1c'); pg.addColorStop(.5, '#ff8c42'); pg.addColorStop(1, '#ff4a1c');
+  ctx.fillStyle = pg; rr(paddle.x, PAD_Y, PAD_W, PAD_H, 5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; rr(paddle.x+2, PAD_Y+2, PAD_W-4, 3, 2); ctx.fill();
+
+  // Balle
+  ctx.save();
+  ctx.shadowBlur = 14; ctx.shadowColor = '#00e0ff';
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // Indicateur de lancement
+  if (ready) {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,107,61,.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ball.x, ball.y - BALL_R); ctx.lineTo(ball.x, BY0); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ── Contrôles ──────────────────────────────────────────────
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  const scl = CV_W / r.width;
+  const mx = (e.clientX - r.left) * scl;
+  paddle.x = Math.max(0, Math.min(CV_W - PAD_W, mx - PAD_W / 2));
+});
+
+let touchX = 0;
+cv.addEventListener('touchstart', e => {
+  const r = cv.getBoundingClientRect();
+  touchX = (e.touches[0].clientX - r.left) * (CV_W / r.width);
+  if (ready) launch();
+}, { passive: true });
+cv.addEventListener('touchmove', e => {
+  const r = cv.getBoundingClientRect();
+  const nx = (e.touches[0].clientX - r.left) * (CV_W / r.width);
+  paddle.x = Math.max(0, Math.min(CV_W - PAD_W, nx - PAD_W / 2));
+}, { passive: true });
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); launch(); }
+  if (!running) return;
+  if (e.key === 'ArrowLeft')  paddle.x = Math.max(0, paddle.x - 18);
+  if (e.key === 'ArrowRight') paddle.x = Math.min(CV_W - PAD_W, paddle.x + 18);
+});
+cv.addEventListener('click', () => { if (ready) launch(); });
+
+document.getElementById('playBtn').onclick = startGame;
+
+// ── Affichage initial ──────────────────────────────────────
+(function init() {
+  lives = 3; level = 1;
+  buildBricks(1);
+  paddle = { x: CV_W / 2 - PAD_W / 2 };
+  ball = { x: CV_W/2, y: PAD_Y - BALL_R - 2, dx: 0, dy: 0, prevX: 0, prevY: 0 };
+  draw();
+})();
+</script>
+</body>
+</html>

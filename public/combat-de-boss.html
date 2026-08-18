@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Combat de Boss</title>
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<style>
+  :root{--bg:#06060f;--neon:#ff2ee0;--ink:#dfe9ff;--dim:#6a7596}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#06060f;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;gap:10px;
+    overflow:hidden;-webkit-tap-highlight-color:transparent;user-select:none;}
+  h1{font-size:clamp(18px,5vw,28px);letter-spacing:.2em;font-weight:800;text-transform:uppercase;
+    color:#fff;text-shadow:0 0 8px var(--neon),0 0 20px #39f6ff}
+  .wrap{position:relative;width:min(92vw,460px);aspect-ratio:9/14}
+  canvas{width:100%;height:100%;display:block;border-radius:14px;background:#06060f;border:1px solid #16224a;
+    box-shadow:0 0 0 1px #0a1228,0 24px 60px -20px #000;touch-action:none}
+  .panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    background:rgba(6,6,15,.85);backdrop-filter:blur(3px);border-radius:14px;text-align:center;padding:24px}
+  .panel.hidden{display:none}
+  .panel .big{font-size:clamp(20px,5.5vw,28px);font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#fff}
+  .panel p{font-size:13px;color:var(--dim);max-width:32ch;line-height:1.7}
+  button{font:inherit;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#06060f;background:var(--neon);
+    border:none;border-radius:10px;padding:13px 28px;cursor:pointer;box-shadow:0 0 20px -3px var(--neon)}
+  .hint{font-size:12px;color:var(--dim);text-align:center;max-width:92vw}
+  .bossName{font-size:13px;color:var(--dim);letter-spacing:.08em;text-align:center;min-height:16px}
+  .bossName b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>Combat de Boss</h1>
+  <div class="bossName">Boss <b id="bossNum">1</b>/15 — <b id="bossNm">?</b></div>
+  <div class="wrap">
+    <canvas id="c" width="460" height="716"></canvas>
+    <div class="panel" id="menu">
+      <div class="big">Combat de Boss</div>
+      <p>Flèches / WASD / glisse pour esquiver. Tir automatique. Seul le petit point au centre du vaisseau compte comme hitbox. 15 boss t'attendent, chacun avec ses propres attaques et sa façon de se déplacer.</p>
+      <button id="play">Combattre</button>
+    </div>
+    <div class="panel hidden" id="bossdone">
+      <div class="big"><span id="bossdoneNm"></span> vaincu !</div>
+      <p id="bossdonestats"></p>
+      <button id="nextBossBtn">Boss suivant</button>
+    </div>
+    <div class="panel hidden" id="dead">
+      <div class="big" id="deadtitle">Vaincu</div>
+      <p id="deadstats"></p>
+      <button id="retry">Réessayer</button>
+    </div>
+  </div>
+  <div class="hint">Flèches / WASD / glisse pour esquiver · tir automatique</div>
+
+<script src="auth.js"></script>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+const menu=document.getElementById('menu'),deadP=document.getElementById('dead'),bossdoneP=document.getElementById('bossdone');
+const bossNumEl=document.getElementById('bossNum'),bossNmEl=document.getElementById('bossNm');
+
+let actx;function tone(f,d=.06,t='square',v=.04){try{if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  const o=actx.createOscillator(),g=actx.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(actx.destination);
+  o.start();g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+d);o.stop(actx.currentTime+d);}catch(e){}}
+
+// ---------- roster des 15 boss ----------
+const BOSSES=[
+  {nm:'Sentinelle Écarlate', col:'#ff2ee0', hp:900,  mv:'sway',   moves:['ring','aimed']},
+  {nm:'Fracture Cyan',       col:'#39f6ff', hp:914,  mv:'still',  moves:['spiral','aimed']},
+  {nm:'Essaim Doré',         col:'#ffd400', hp:956,  mv:'sway',   moves:['scatter','ring']},
+  {nm:'Lame Violette',       col:'#8a5cff', hp:1026, mv:'charge', moves:['cross','aimed']},
+  {nm:'Noyau Vert',          col:'#39ff9e', hp:1124, mv:'still',  moves:['wall','spiral']},
+  {nm:'Prisme Orange',       col:'#ff8a3d', hp:1250, mv:'orbit',  moves:['doubleSpiral','ring']},
+  {nm:'Ombre Magenta',       col:'#ff2e6e', hp:1404, mv:'sway',   moves:['homing','aimed']},
+  {nm:'Titan Azur',          col:'#3dc7ff', hp:1586, mv:'charge', moves:['cross','wall']},
+  {nm:'Spectre Jaune',       col:'#ffe23d', hp:1796, mv:'orbit',  moves:['spiral','scatter']},
+  {nm:'Chimère Rose',        col:'#ff6bd6', hp:2034, mv:'still',  moves:['ring','homing']},
+  {nm:'Colosse Émeraude',    col:'#2dd881', hp:2300, mv:'charge', moves:['wall','doubleSpiral']},
+  {nm:'Nova Pourpre',        col:'#b06bff', hp:2594, mv:'sway',   moves:['cross','scatter','ring']},
+  {nm:'Vortex Ambre',        col:'#ffb14e', hp:2916, mv:'orbit',  moves:['doubleSpiral','homing']},
+  {nm:'Ravageur Cramoisi',   col:'#ff3355', hp:3266, mv:'charge', moves:['wall','cross','aimed']},
+  {nm:'Néant Final',         col:'#ffffff', hp:3644, mv:'orbit',  moves:['ring','spiral','wall','homing']},
+];
+
+let state='menu',player,boss,ebul,pbul,parts,t,fireT,phase,shake,bossIndex=0;
+
+function reset(){
+  bossIndex=0;
+  player={x:W/2,y:H-90,r:3,lives:4,inv:0,speed:4.4};
+  ebul=[];pbul=[];parts=[];t=0;fireT=0;phase=1;shake=0;
+  startBoss(bossIndex);
+  state='play';menu.classList.add('hidden');deadP.classList.add('hidden');bossdoneP.classList.add('hidden');
+}
+function startBoss(idx){
+  const cfg=BOSSES[idx];
+  boss={x:W/2,y:120,hp:cfg.hp,max:cfg.hp,r:34,timer:0.6,patTimer:0.2,hitFlash:0,moveIdx:0,charging:false,chargeT:1.6,_sa:0};
+  ebul=[];
+  bossNumEl.textContent=idx+1; bossNmEl.textContent=cfg.nm;
+}
+function burst(x,y,col,n){for(let i=0;i<n;i++){const a=Math.random()*7,s=1+Math.random()*3;
+  parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col});}}
+
+const keys={};
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;
+  if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+cv.addEventListener('touchstart',e=>{e.preventDefault();},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();const t0=e.touches[0];
+  const r=cv.getBoundingClientRect();
+  player.x=(t0.clientX-r.left)*(W/r.width);player.y=(t0.clientY-r.top)*(H/r.height);
+},{passive:false});
+cv.addEventListener('touchend',e=>{e.preventDefault();},{passive:false});
+document.getElementById('play').onclick=()=>{tone(660);reset();};
+document.getElementById('retry').onclick=()=>{tone(660);reset();};
+document.getElementById('nextBossBtn').onclick=()=>{
+  tone(660,.1,'sine',.06);
+  bossdoneP.classList.add('hidden');
+  bossIndex++;
+  player.lives=4;
+  startBoss(bossIndex);
+  state='play';
+};
+
+// ---------- bibliothèque d'attaques ----------
+function pRing(speedMul){
+  const n= phase===3?18:12;
+  for(let i=0;i<n;i++){const a=(Math.PI*2/n)*i+t*0.4;
+    ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*3.0*speedMul,vy:Math.sin(a)*3.0*speedMul,r:5,col:'#ff2ee0'});}
+}
+function pAimed(speedMul){
+  const n= phase===3?5:3, spread=0.22;
+  const base=Math.atan2(player.y-boss.y,player.x-boss.x);
+  for(let i=0;i<n;i++){const a=base+(i-(n-1)/2)*spread;
+    ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*4.9*speedMul,vy:Math.sin(a)*4.9*speedMul,r:5,col:'#39f6ff'});}
+}
+function pSpiral(speedMul){
+  boss._sa=(boss._sa||0)+0.32;
+  for(let k=0;k<3;k++){const a=boss._sa+k*(Math.PI*2/3);
+    ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*3.8*speedMul,vy:Math.sin(a)*3.8*speedMul,r:5,col:'#ffd400'});}
+}
+function pDoubleSpiral(speedMul){
+  boss._sa2=(boss._sa2||0)+0.3;
+  for(const off of [0,Math.PI]){
+    const a=boss._sa2+off;
+    ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*3.6*speedMul,vy:Math.sin(a)*3.6*speedMul,r:5,col:'#b06bff'});
+  }
+}
+function pCross(speedMul){
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1],[0.7071,0.7071],[-0.7071,0.7071],[0.7071,-0.7071],[-0.7071,-0.7071]];
+  for(const [dx,dy] of dirs){
+    ebul.push({x:boss.x,y:boss.y,vx:dx*3.8*speedMul,vy:dy*3.8*speedMul,r:5,col:'#39ff9e'});
+  }
+}
+function pWall(speedMul){
+  const lanes=7, gap=Math.floor(Math.random()*lanes);
+  for(let i=0;i<lanes;i++){ if(i===gap)continue;
+    const x=(W/lanes)*(i+0.5);
+    ebul.push({x,y:boss.y+10,vx:0,vy:3.6*speedMul,r:6,col:'#ffe23d'});
+  }
+}
+function pHoming(speedMul){
+  const a=Math.atan2(player.y-boss.y,player.x-boss.x);
+  ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*2.7*speedMul,vy:Math.sin(a)*2.7*speedMul,r:6,col:'#ff2e6e',homing:true,homingT:1.6});
+}
+function pScatter(speedMul){
+  for(let i=0;i<8;i++){ const a=Math.random()*Math.PI*2, s=(1.8+Math.random()*2.5)*speedMul;
+    ebul.push({x:boss.x,y:boss.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:4,col:'#ffb14e'}); }
+}
+const PATTERN_FN={ring:pRing,aimed:pAimed,spiral:pSpiral,doubleSpiral:pDoubleSpiral,cross:pCross,wall:pWall,homing:pHoming,scatter:pScatter};
+
+function updateBossMovement(dt){
+  const cfg=BOSSES[bossIndex];
+  if(cfg.mv==='sway'){ boss.x=W/2+Math.sin(t*0.7)*(W*0.28); boss.y=120; }
+  else if(cfg.mv==='still'){ boss.x=W/2; boss.y=120+Math.sin(t*1.2)*6; }
+  else if(cfg.mv==='orbit'){ boss.x=W/2+Math.cos(t*0.5)*(W*0.22); boss.y=120+Math.sin(t*0.5)*36; }
+  else if(cfg.mv==='charge'){
+    boss.chargeT-=dt;
+    if(boss.chargeT<=0){ boss.charging=!boss.charging; boss.chargeT= boss.charging?0.8:3.0; }
+    const ty= boss.charging?210:120;
+    const tx= boss.charging?player.x:(W/2+Math.sin(t*0.4)*(W*0.2));
+    boss.x+=(tx-boss.x)*Math.min(1,dt*4);
+    boss.y+=(ty-boss.y)*Math.min(1,dt*4);
+  }
+}
+function updateBoss(dt){
+  boss.timer-=dt;boss.patTimer-=dt;
+  if(boss.hitFlash>0)boss.hitFlash-=dt*3;
+  const hpr=boss.hp/boss.max;
+  phase = hpr>0.66?1: hpr>0.33?2:3;
+  const cfg=BOSSES[bossIndex];
+  const bossScale = 0.72 + bossIndex*0.026;   // 0.72 (boss 1) -> ~1.08 (boss 15)
+  const pace = 1.35 - bossIndex*0.023;        // 1.35 (boss 1, plus lent) -> ~1.03 (boss 15)
+
+  updateBossMovement(dt);
+
+  if(boss.patTimer<=0){
+    boss.moveIdx=(boss.moveIdx+1)%cfg.moves.length;
+    boss.patTimer= (phase===1?2.3: phase===2?1.7:1.2) * pace;
+  }
+  if(boss.timer<=0){
+    const speedMul = (phase===1?1:phase===2?1.3:1.6) * bossScale;
+    const fn=PATTERN_FN[cfg.moves[boss.moveIdx]];
+    fn(speedMul);
+    if(phase===3 && bossIndex>=4 && cfg.moves.length>1){
+      const fn2=PATTERN_FN[cfg.moves[(boss.moveIdx+1)%cfg.moves.length]];
+      fn2(speedMul*0.85);
+    }
+    boss.timer = (phase===1?0.42:phase===2?0.30:0.20) * pace;
+  }
+}
+
+function update(dt){
+  if(state!=='play')return;
+  t+=dt;
+  let dx=0,dy=0;
+  if(keys['w']||keys['arrowup'])dy=-1;if(keys['s']||keys['arrowdown'])dy=1;
+  if(keys['a']||keys['arrowleft'])dx=-1;if(keys['d']||keys['arrowright'])dx=1;
+  if(dx&&dy){dx*=0.7071;dy*=0.7071;}
+  player.x=Math.max(14,Math.min(W-14,player.x+dx*player.speed));
+  player.y=Math.max(H*0.35,Math.min(H-14,player.y+dy*player.speed));
+  if(player.inv>0)player.inv-=dt;
+
+  fireT-=dt;
+  if(fireT<=0){pbul.push({x:player.x,y:player.y-14,vy:-9});pbul.push({x:player.x-10,y:player.y-8,vy:-9});pbul.push({x:player.x+10,y:player.y-8,vy:-9});fireT=0.12;tone(880,.02,'square',.015);}
+  for(const b of pbul)b.y+=b.vy;
+  pbul=pbul.filter(b=>b.y>-20);
+
+  updateBoss(dt);
+  for(const e of ebul){
+    if(e.homing && e.homingT>0){
+      e.homingT-=dt;
+      const a=Math.atan2(player.y-e.y,player.x-e.x), curA=Math.atan2(e.vy,e.vx);
+      let da=a-curA; while(da>Math.PI)da-=Math.PI*2; while(da<-Math.PI)da+=Math.PI*2;
+      const turn=Math.max(-2.5*dt,Math.min(2.5*dt,da));
+      const na=curA+turn, spd=Math.hypot(e.vx,e.vy);
+      e.vx=Math.cos(na)*spd; e.vy=Math.sin(na)*spd;
+    }
+    e.x+=e.vx;e.y+=e.vy;
+  }
+  ebul=ebul.filter(e=>e.x>-20&&e.x<W+20&&e.y>-20&&e.y<H+20);
+
+  for(const b of pbul){
+    const dx2=b.x-boss.x,dy2=b.y-boss.y;
+    if(dx2*dx2+dy2*dy2<boss.r*boss.r){ boss.hp-=8;boss.hitFlash=1;b.y=-9999;burst(b.x,b.y,'#fff',3); }
+  }
+  pbul=pbul.filter(b=>b.y>-9000);
+  if(boss.hp<=0){
+    if(bossIndex>=BOSSES.length-1){ state='win'; winScreen(); }
+    else { state='bossdone'; bossClearedScreen(); }
+    return;
+  }
+
+  if(player.inv<=0){
+    for(const e of ebul){
+      const dx3=e.x-player.x,dy3=e.y-player.y;
+      if(dx3*dx3+dy3*dy3<(e.r+player.r)*(e.r+player.r)){
+        player.lives--;player.inv=0.75;shake=8;tone(160,.2,'sawtooth',.07);burst(player.x,player.y,'#ff2e6e',14);
+        if(player.lives<=0){ state='lose'; loseScreen(); }
+        break;
+      }
+    }
+  }
+  for(const p of parts){p.x+=p.vx;p.y+=p.vy;p.vx*=.92;p.vy*=.92;p.life-=.04;}
+  parts=parts.filter(p=>p.life>0);
+  if(shake>0)shake*=.85;
+}
+function bossClearedScreen(){
+  document.getElementById('bossdoneNm').textContent=BOSSES[bossIndex].nm;
+  document.getElementById('bossdonestats').textContent='Boss '+(bossIndex+1)+' / '+BOSSES.length+' vaincu. Prochain adversaire : '+BOSSES[bossIndex+1].nm+'.';
+  bossdoneP.classList.remove('hidden');
+}
+function winScreen(){
+  document.getElementById('deadtitle').textContent='Les 15 boss vaincus !';
+  document.getElementById('deadstats').textContent='Tu as terrassé l\'intégralité du Combat de Boss, jusqu\'au Néant Final.';
+  deadP.classList.remove('hidden');
+}
+function loseScreen(){
+  document.getElementById('deadtitle').textContent='Perdu';
+  document.getElementById('deadstats').textContent=BOSSES[bossIndex].nm+' t\'a eu (boss '+(bossIndex+1)+'/'+BOSSES.length+'). Réessaie, tu connais ses patterns maintenant.';
+  deadP.classList.remove('hidden');
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const sx=(shake>0.4)?(Math.random()-.5)*shake:0, sy=(shake>0.4)?(Math.random()-.5)*shake:0;
+  ctx.save();ctx.translate(sx,sy);
+  ctx.fillStyle='rgba(255,255,255,.15)';
+  for(let i=0;i<50;i++){const x=(i*53)%W,y=(i*97+ (t*40))%H;ctx.fillRect(x,y,2,2);}
+  if(state==='play'||state==='win'||state==='lose'||state==='bossdone'){
+    const cfg=BOSSES[bossIndex];
+    ctx.save();
+    ctx.fillStyle= boss.hitFlash>0 ? '#fff' : cfg.col;
+    ctx.shadowColor=cfg.col;ctx.shadowBlur=20;
+    ctx.beginPath();ctx.arc(boss.x,boss.y,boss.r,0,7);ctx.fill();
+    ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.15)';ctx.fillRect(W/2-140,20,280,10);
+    ctx.fillStyle= phase===1?'#39f6ff':phase===2?'#ffd400':'#ff2e6e';
+    ctx.fillRect(W/2-140,20,280*Math.max(0,boss.hp/boss.max),10);
+    for(const e of ebul){ctx.fillStyle=e.col;ctx.shadowColor=e.col;ctx.shadowBlur=8;
+      ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,7);ctx.fill();ctx.shadowBlur=0;}
+    ctx.fillStyle='#7fffb0';
+    for(const b of pbul){ctx.fillRect(b.x-2,b.y-6,4,10);}
+    ctx.save();if(player.inv>0&&(Math.floor(t*10)%2))ctx.globalAlpha=.4;
+    ctx.fillStyle='#39f6ff';ctx.shadowColor='#39f6ff';ctx.shadowBlur=12;
+    ctx.beginPath();ctx.moveTo(player.x,player.y-14);ctx.lineTo(player.x-11,player.y+12);ctx.lineTo(player.x+11,player.y+12);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,7);ctx.fill();
+    ctx.restore();
+    for(const p of parts){ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.col;ctx.fillRect(p.x-2,p.y-2,4,4);ctx.globalAlpha=1;}
+    for(let i=0;i<player.lives;i++){ctx.fillStyle='#ff2e6e';ctx.shadowColor='#ff2e6e';ctx.shadowBlur=6;ctx.beginPath();ctx.arc(W-20-i*22,42,6,0,7);ctx.fill();ctx.shadowBlur=0;}
+  }
+  ctx.restore();
+}
+let last=0;
+function loop(ts){requestAnimationFrame(loop);const dt=Math.min((ts-last)/1000,0.033);last=ts;update(dt);draw();}
+player={x:W/2,y:H-90,r:3,lives:4,inv:0,speed:4.4};
+boss={x:W/2,y:120,hp:1,max:1,r:34,timer:0,moveIdx:0,patTimer:0,hitFlash:0,charging:false,chargeT:1.6};
+ebul=[];pbul=[];parts=[];t=0;fireT=0;phase=1;shake=0;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

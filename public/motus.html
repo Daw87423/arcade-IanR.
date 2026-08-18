@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motus</title>
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Space+Mono:wght@700&display=swap');
+:root{
+  --bg:#0c1430; --panel:#121d44; --line:rgba(255,255,255,.12);
+  --red:#e8294a; --yellow:#ffce3a; --empty:#1b2a5e; --absent:#0e1024;
+  --ink:#eef2ff; --mute:#8b9bce;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:'Space Grotesk',sans-serif;background:radial-gradient(130% 100% at 50% -20%, #1a2a66, var(--bg) 60%);
+  color:var(--ink);min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:18px 14px;
+}
+.title{font-family:'Space Mono',monospace;font-weight:700;font-size:34px;letter-spacing:.1em;margin-bottom:2px}
+.title span:nth-child(odd){color:var(--red)} .title span:nth-child(even){color:var(--yellow)}
+.sub{color:var(--mute);font-size:13px;margin-bottom:14px;text-align:center}
+.lenpick{display:flex;gap:7px;margin-bottom:18px}
+.lenpick button{cursor:pointer;font-family:inherit;font-weight:700;font-size:14px;color:var(--ink);
+  background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:9px 15px;transition:border-color .12s,background .12s}
+.lenpick button.on{border-color:var(--yellow);background:rgba(255,206,58,.16);color:var(--yellow)}
+.grid{display:grid;gap:7px;margin-bottom:14px;width:100%}
+.row{display:grid;gap:7px}
+.cell{
+  aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  font-family:'Space Mono',monospace;font-weight:700;font-size:clamp(18px,6vw,26px);text-transform:uppercase;
+  background:var(--empty);border-radius:9px;color:var(--ink);transition:transform .15s ease;
+}
+.cell.filled{transform:scale(1.04)}
+.cell.red,.cell.given{background:var(--red);color:#fff}
+.cell.yellow{background:transparent;border:3px solid var(--yellow);color:var(--yellow)}
+.cell.absent{background:var(--absent);color:var(--mute)}
+.msg{min-height:22px;font-weight:700;font-size:15px;margin-bottom:10px;text-align:center}
+.kb{display:flex;flex-direction:column;gap:6px;width:100%;max-width:480px}
+.kb-row{display:flex;gap:5px;justify-content:center}
+.key{
+  flex:1;min-width:0;height:50px;border:none;border-radius:8px;background:var(--panel);color:var(--ink);
+  font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;cursor:pointer;text-transform:uppercase;
+  transition:background .12s ease,transform .08s ease;
+}
+.key:active{transform:translateY(1px)}
+.key.wide{flex:1.6;font-size:13px}
+.key.red{background:var(--red);color:#fff} .key.yellow{background:var(--yellow);color:#3a2c00} .key.absent{background:#070b1c;color:#4a5680}
+.btn{
+  cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;margin-top:16px;
+  background:var(--yellow);color:#3a2c00;border:none;border-radius:11px;padding:12px 26px;
+}
+.btn:active{transform:scale(.98)}
+:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+</style>
+</head>
+<body>
+<a href="index.html" aria-label="Retour au menu" style="position:fixed;top:12px;left:12px;z-index:99;font-family:system-ui,-apple-system,'Space Grotesk',sans-serif;font-size:13px;font-weight:700;text-decoration:none;color:#e8f0ff;background:rgba(20,22,30,.66);border:1px solid rgba(255,255,255,.18);padding:7px 13px;border-radius:10px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:0 4px 16px rgba(0,0,0,.35)">← Menu</a>
+  <div class="title"><span>M</span><span>O</span><span>T</span><span>U</span><span>S</span></div>
+  <div class="sub" id="sub"></div>
+  <div class="lenpick" id="lenpick"></div>
+  <div class="grid" id="grid"></div>
+  <div class="msg" id="msg"></div>
+  <div class="kb" id="kb"></div>
+  <button class="btn" id="newGame">Nouveau mot &#8634;</button>
+<script>
+const LISTS={
+5:[
+   "TABLE","CHIEN","ARBRE","FLEUR","PORTE","ROUTE","NEIGE","PLAGE","VOILE","LIVRE",
+   "POMME","SUCRE","VERRE","MONDE","RADIO","PIANO","TIGRE","ZEBRE","VAGUE","NUAGE",
+   "ORAGE","PERLE","REINE","ROBOT","SALON","TRAIN","AVION","CARTE","FORME","GLACE",
+   "LAMPE","MERCI","USINE","TASSE","BARBE","HOTEL","IMAGE","VILLE","MUSEE","JUPON",
+   "CANNE","CORDE","NAPPE","PHARE","MELON","POIRE","PRUNE","DATTE","OLIVE","VACHE",
+   "BICHE","AIGLE","CYGNE","HIBOU","GUEPE","STYLO","REGLE","COLLE","BERGE","SABLE",
+   "TERRE","HERBE","FORET","PLUIE","GIVRE","FROID","MATIN","ROUGE","BEIGE","BLANC",
+   "PIZZA","CREPE","DOIGT","COUDE","VESTE","BOTTE"],
+6:[
+   "MAISON","JARDIN","SOLEIL","NUAGES","BANANE","ORANGE","CERISE","FRAISE","POULET","GARAGE",
+   "VOYAGE","CAMION","BUREAU","MIROIR","CHEVAL","MOUTON","SOURIS","POISON","BALCON","BOUTON",
+   "CARTON","CHASSE","CHANCE","FRANCE","FLEURS","ARBRES","PLANTE","RACINE","SOURCE","MONTRE",
+   "BOUGIE","PANIER","CLOCHE","BRIQUE","DANGER","TRESOR","VOLEUR","PIRATE","DRAGON","CHATON",
+   "VAGUES","DESSIN","CRAYON","CAHIER","MAITRE","LIONNE","GIRAFE","REQUIN","TORTUE","LEZARD",
+   "TOMATE","OIGNON","POIVRE","RAISIN","CITRON","RIDEAU","TIROIR","VALLEE","DESERT","ETOILE",
+   "FOUDRE","BRUINE","PALAIS","EGLISE","MARCHE","AVENUE","ENFANT","GARCON","ACTEUR","AUTEUR",
+   "BALLON","TENNIS","VIOLON","BATEAU","PETITE"],
+7:[
+   "VOITURE","CUISINE","JOURNAL","FENETRE","LUMIERE","MUSIQUE","GUITARE","CHATEAU","DRAPEAU","MANTEAU",
+   "CHAPEAU","POMPIER","ANIMAUX","CADEAUX","OISEAUX","CHEVAUX","COULEUR","CHANSON","MACHINE","FROMAGE",
+   "LEGUMES","POMMIER","RIVIERE","COLLINE","PRAIRIE","PLANETE","GALAXIE","DAUPHIN","GORILLE","MOUETTE",
+   "BALEINE","CRAPAUD","CAROTTE","ABRICOT","BROCOLI","EPINARD","POIREAU","NOUILLE","BISCUIT","ARMOIRE",
+   "COUSSIN","PINCEAU","CISEAUX","BALANCE","PARASOL","DOCTEUR","FACTEUR","PEINTRE","DANSEUR","CASCADE",
+   "GLACIER","TORRENT","THEATRE","LECTURE"],
+8:[
+   "MONTAGNE","ELEPHANT","CHOCOLAT","VACANCES","AVENTURE","FONTAINE","PAPILLON","CHAMPION","FOOTBALL","PEINTURE",
+   "CEINTURE","BATAILLE","ESCALIER","DENTISTE","MUSICIEN","COUTEAUX","CHATEAUX","LANTERNE","BOUSSOLE","AUTRUCHE",
+   "PINGOUIN","HERISSON","ECUREUIL","SAUCISSE","BAGUETTE","OMELETTE","FAUTEUIL","TABOURET","COQUILLE","CHANTEUR",
+   "MAGICIEN","QUARTIER","BOUTIQUE","CYCLISME","NATATION","HANDBALL","CARTABLE","HISTOIRE"]
+};
+const ROWS=6;
+const KB=[["A","Z","E","R","T","Y","U","I","O","P"],
+          ["Q","S","D","F","G","H","J","K","L","M"],
+          ["ENT","W","X","C","V","B","N","DEL"]];
+const gridEl=document.getElementById('grid'), msgEl=document.getElementById('msg'),
+      kbEl=document.getElementById('kb'), newBtn=document.getElementById('newGame'),
+      subEl=document.getElementById('sub'), lenEl=document.getElementById('lenpick');
+let LEN=6, target, row, col, guess, over, keyState, lastFirst=null;
+
+// sélecteur de longueur
+[5,6,7,8].forEach(n=>{
+  const b=document.createElement('button'); b.textContent=n; b.dataset.n=n;
+  if(n===LEN)b.classList.add('on');
+  b.onclick=()=>{ LEN=n; lenEl.querySelectorAll('button').forEach(x=>x.classList.toggle('on',+x.dataset.n===LEN)); init(); };
+  lenEl.appendChild(b);
+});
+
+function pickWord(){
+  const list=LISTS[LEN];
+  const choices=list.filter(w=>w[0]!==lastFirst);
+  const pool=choices.length?choices:list;
+  const w=pool[Math.random()*pool.length|0];
+  lastFirst=w[0];
+  return w;
+}
+function init(){
+  target=pickWord();
+  row=0; over=false; keyState={};
+  msgEl.textContent=''; subEl.textContent=LEN+' lettres · '+ROWS+' essais · la 1re lettre est donnée';
+  buildGrid(); buildKb(); startRow();
+}
+function buildGrid(){
+  gridEl.innerHTML='';
+  gridEl.style.maxWidth=(LEN*54)+'px';
+  for(let r=0;r<ROWS;r++){
+    const rd=document.createElement('div'); rd.className='row';
+    rd.style.gridTemplateColumns='repeat('+LEN+',1fr)';
+    for(let c=0;c<LEN;c++){const cell=document.createElement('div');cell.className='cell';cell.id='c'+r+c;rd.appendChild(cell);}
+    gridEl.appendChild(rd);
+  }
+}
+function buildKb(){
+  kbEl.innerHTML='';
+  KB.forEach(rowKeys=>{
+    const rd=document.createElement('div'); rd.className='kb-row';
+    rowKeys.forEach(k=>{
+      const b=document.createElement('button'); b.className='key'+(k==='ENT'||k==='DEL'?' wide':'');
+      b.textContent=k==='ENT'?'Entrée':k==='DEL'?'\u232b':k; b.dataset.k=k;
+      b.onclick=()=>handle(k); rd.appendChild(b);
+    });
+    kbEl.appendChild(rd);
+  });
+}
+function startRow(){
+  guess=[target[0]]; col=1;
+  const first=document.getElementById('c'+row+'0');
+  first.textContent=target[0]; first.classList.add('given');
+}
+function handle(k){
+  if(over) return;
+  if(k==='DEL'){ if(col>1){col--; const cell=document.getElementById('c'+row+col); cell.textContent=''; cell.classList.remove('filled'); guess.pop();} return; }
+  if(k==='ENT'){ if(col===LEN) submit(); else flash('Complète les '+LEN+' lettres'); return; }
+  if(/^[A-Z]$/.test(k) && col<LEN){
+    guess.push(k); const cell=document.getElementById('c'+row+col); cell.textContent=k; cell.classList.add('filled'); col++;
+  }
+}
+function submit(){
+  const g=guess.join(''), t=target.split('');
+  const res=Array(LEN).fill('absent');
+  for(let i=0;i<LEN;i++){ if(g[i]===t[i]){res[i]='red'; t[i]=null;} }
+  for(let i=0;i<LEN;i++){
+    if(res[i]==='red') continue;
+    const j=t.indexOf(g[i]); if(j!==-1){res[i]='yellow'; t[j]=null;}
+  }
+  for(let i=0;i<LEN;i++){
+    const cell=document.getElementById('c'+row+i);
+    cell.classList.remove('filled','given'); cell.classList.add(res[i]);
+    updateKey(g[i],res[i]);
+  }
+  if(g===target){ flash('Bravo ! \ud83c\udf89 '+target); endGame(); return; }
+  row++;
+  if(row>=ROWS){ flash('Perdu — le mot était '+target); endGame(); return; }
+  startRow();
+}
+function updateKey(letter,state){
+  const rank={absent:0,yellow:1,red:2};
+  if(!keyState[letter]||rank[state]>rank[keyState[letter]]){
+    keyState[letter]=state;
+    const b=kbEl.querySelector('[data-k="'+letter+'"]');
+    if(b){b.classList.remove('red','yellow','absent');b.classList.add(state);}
+  }
+}
+function flash(t){msgEl.textContent=t;}
+function endGame(){over=true;}
+document.addEventListener('keydown',e=>{
+  const k=e.key.toUpperCase();
+  if(k==='BACKSPACE')handle('DEL');
+  else if(k==='ENTER')handle('ENT');
+  else if(/^[A-Z]$/.test(k))handle(k);
+});
+newBtn.onclick=init;
+init();
+</script>
+</body>
+</html>

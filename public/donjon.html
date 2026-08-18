@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Néon Donjon</title>
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<style>
+  :root{--bg:#06060f;--neon:#7fffb0;--hp:#ff2e6e;--ink:#dfe9ff;--dim:#6a7596}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#06060f;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;gap:12px;
+    overflow:hidden;-webkit-tap-highlight-color:transparent;user-select:none;}
+  h1{font-size:clamp(18px,5vw,28px);letter-spacing:.2em;font-weight:800;text-transform:uppercase;
+    color:#fff;text-shadow:0 0 8px var(--neon),0 0 20px var(--hp)}
+  .wrap{position:relative;width:min(96vw,800px);aspect-ratio:5/3}
+  canvas{width:100%;height:100%;display:block;border-radius:14px;background:#050509;border:1px solid #16224a;
+    box-shadow:0 0 0 1px #0a1228,0 24px 60px -20px #000;touch-action:none}
+  .panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    background:rgba(6,6,15,.85);backdrop-filter:blur(3px);border-radius:14px;text-align:center;padding:24px}
+  .panel.hidden{display:none}
+  .panel .big{font-size:clamp(20px,5.5vw,28px);font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#fff}
+  .panel p{font-size:13px;color:var(--dim);max-width:36ch;line-height:1.7}
+  button{font:inherit;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#06060f;background:var(--neon);
+    border:none;border-radius:10px;padding:13px 28px;cursor:pointer;box-shadow:0 0 20px -3px var(--neon)}
+  .hud{display:flex;gap:18px;font-size:13px;color:var(--dim)}
+  .hud b{color:#fff}
+  .hint{font-size:12px;color:var(--dim);text-align:center;max-width:92vw}
+</style>
+</head>
+<body>
+  <h1>Néon Donjon</h1>
+  <div class="hud"><div>❤ <b id="hpv">10</b>/<b id="hpmax">10</b></div><div>⚔ <b id="atkv">2</b></div><div>🏺 étage <b id="floorv">1</b></div></div>
+  <div class="wrap">
+    <canvas id="c" width="800" height="480"></canvas>
+    <div class="panel" id="menu">
+      <div class="big">Néon Donjon</div>
+      <p>Déplace-toi case par case (WASD / flèches). Fonce dans un monstre pour l'attaquer. Ramasse potions et armes, trouve l'escalier ▼ pour descendre encore plus loin.</p>
+      <button id="play">Jouer</button>
+    </div>
+    <div class="panel hidden" id="dead">
+      <div class="big" id="deadtitle">Tu es mort</div>
+      <p id="deadstats"></p>
+      <button id="retry">Rejouer</button>
+    </div>
+  </div>
+  <div class="hint">WASD / flèches : un pas = un tour · fonce sur un monstre pour l'attaquer</div>
+
+<script src="auth.js"></script>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+const menu=document.getElementById('menu'),deadP=document.getElementById('dead');
+const hpv=document.getElementById('hpv'),hpmax=document.getElementById('hpmax'),atkv=document.getElementById('atkv'),floorv=document.getElementById('floorv');
+const TS=20,COLS=40,ROWS=24;
+
+let actx;function tone(f,d=.08,t='square',v=.05){try{if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  const o=actx.createOscillator(),g=actx.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(actx.destination);
+  o.start();g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+d);o.stop(actx.currentTime+d);}catch(e){}}
+
+let state='menu',map,rooms,player,monsters,items,stairs,floorN,seen,log;
+
+function mkRoom(x,y,w,h){return {x,y,w,h,cx:(x+(w/2))|0,cy:(y+(h/2))|0};}
+function carve(x,y,w,h){for(let r=y;r<y+h;r++)for(let c=x;c<x+w;c++){if(r>=0&&r<ROWS&&c>=0&&c<COLS)map[r][c]=0;}}
+function carveCorridor(x1,y1,x2,y2){
+  if(Math.random()<0.5){ hline(x1,x2,y1); vline(y1,y2,x2); }
+  else { vline(y1,y2,x1); hline(x1,x2,y2); }
+}
+function hline(x1,x2,y){for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)if(map[y]) map[y][x]=0;}
+function vline(y1,y2,x){for(let y=Math.min(y1,y2);y<=Math.max(y1,y2);y++)if(map[y]) map[y][x]=0;}
+
+function generate(n){
+  map=[];for(let r=0;r<ROWS;r++){map.push(new Array(COLS).fill(1));}
+  rooms=[];
+  const tries=22;
+  for(let i=0;i<tries;i++){
+    const w=4+Math.floor(Math.random()*6),h=3+Math.floor(Math.random()*5);
+    const x=1+Math.floor(Math.random()*(COLS-w-2)),y=1+Math.floor(Math.random()*(ROWS-h-2));
+    const room=mkRoom(x,y,w,h);
+    if(rooms.some(o=>x<o.x+o.w+1&&x+w+1>o.x&&y<o.y+o.h+1&&y+h+1>o.y))continue;
+    carve(x,y,w,h);rooms.push(room);
+  }
+  rooms.sort((a,b)=>a.cx-b.cx);
+  for(let i=1;i<rooms.length;i++) carveCorridor(rooms[i-1].cx,rooms[i-1].cy,rooms[i].cx,rooms[i].cy);
+  if(rooms.length<2){return generate(n);}
+
+  const start=rooms[0], end=rooms[rooms.length-1];
+  player.c=start.cx;player.r=start.cy;
+  stairs={c:end.cx,r:end.cy};
+
+  monsters=[];items=[];
+  const mCount=4+n;
+  for(let i=0;i<mCount;i++){
+    const room=rooms[1+Math.floor(Math.random()*(rooms.length-1))];
+    const c=room.x+1+Math.floor(Math.random()*(room.w-2)),r=room.y+1+Math.floor(Math.random()*(room.h-2));
+    if(c===player.c&&r===player.r)continue;
+    monsters.push({c,r,hp:2+Math.floor(n*1.2),max:2+Math.floor(n*1.2),atk:1+Math.floor(n*0.6),col:'#ff2e6e',awake:false});
+  }
+  const iCount=2+Math.floor(Math.random()*3);
+  for(let i=0;i<iCount;i++){
+    const room=rooms[1+Math.floor(Math.random()*(rooms.length-1))];
+    const c=room.x+1+Math.floor(Math.random()*(room.w-2)),r=room.y+1+Math.floor(Math.random()*(room.h-2));
+    items.push({c,r,type:Math.random()<0.6?'potion':'arme'});
+  }
+  seen=[];for(let r=0;r<ROWS;r++)seen.push(new Array(COLS).fill(false));
+}
+
+function reset(){
+  floorN=1;
+  player={c:2,r:2,hp:10,max:10,atk:2};
+  log='Tu descends dans le donjon...';
+  generate(floorN);
+  state='play';menu.classList.add('hidden');deadP.classList.add('hidden');
+  updateHud();
+}
+function updateHud(){hpv.textContent=Math.max(0,player.hp);hpmax.textContent=player.max;atkv.textContent=player.atk;floorv.textContent=floorN;}
+
+function inb(c,r){return c>=0&&c<COLS&&r>=0&&r<ROWS;}
+function walkable(c,r){return inb(c,r)&&map[r][c]===0;}
+
+function monsterAt(c,r){return monsters.find(m=>m.c===c&&m.r===r&&m.hp>0);}
+
+function playerTurn(dc,dr){
+  if(state!=='play')return;
+  const nc=player.c+dc,nr=player.r+dr;
+  const m=monsterAt(nc,nr);
+  if(m){
+    m.hp-=player.atk;tone(300,.08,'square',.06);
+    if(m.hp<=0){log='Monstre vaincu.';tone(500,.1,'sine',.06);}
+    else{ log='Tu frappes le monstre.'; }
+  } else if(walkable(nc,nr)){
+    player.c=nc;player.r=nr;
+  } else return;
+  monstersTurn();
+  if(nc===stairs.c&&nr===stairs.r&&player.c===stairs.c&&player.r===stairs.r){
+    floorN++;player.max+=2;player.hp=Math.min(player.max,player.hp+4);player.atk+= (floorN%3===0)?1:0;
+    log='Tu descends à l\'étage '+floorN+'.';generate(floorN);tone(660,.15,'sine',.06);
+  }
+  for(let i=items.length-1;i>=0;i--){
+    const it=items[i];
+    if(it.c===player.c&&it.r===player.r){
+      if(it.type==='potion'){player.hp=Math.min(player.max,player.hp+5);log='Potion : +5 PV.';}
+      else{player.atk+=1;log='Arme ramassée : +1 attaque.';}
+      tone(720,.08,'sine',.05);items.splice(i,1);
+    }
+  }
+  updateHud();
+  if(player.hp<=0) gameOver();
+}
+function monstersTurn(){
+  for(const m of monsters){
+    if(m.hp<=0)continue;
+    const dx=player.c-m.c,dy=player.r-m.r,d=Math.abs(dx)+Math.abs(dy);
+    if(d<=6) m.awake=true;
+    if(!m.awake)continue;
+    if(d===1){ player.hp-=m.atk; tone(160,.15,'sawtooth',.06); log='Le monstre te frappe (-'+m.atk+' PV).'; continue; }
+    const sc=Math.sign(dx),sr=Math.sign(dy);
+    let nc=m.c,nr=m.r;
+    if(Math.abs(dx)>Math.abs(dy)&&sc!==0&&walkable(m.c+sc,m.r)&&!monsterAt(m.c+sc,m.r)) nc=m.c+sc;
+    else if(sr!==0&&walkable(m.c,m.r+sr)&&!monsterAt(m.c,m.r+sr)) nr=m.r+sr;
+    else if(sc!==0&&walkable(m.c+sc,m.r)&&!monsterAt(m.c+sc,m.r)) nc=m.c+sc;
+    if(!(nc===player.c&&nr===player.r)){m.c=nc;m.r=nr;}
+  }
+  monsters=monsters.filter(m=>m.hp>0 || true);
+}
+function gameOver(){
+  state='dead';
+  document.getElementById('deadtitle').textContent='Tu es mort';
+  document.getElementById('deadstats').textContent='Étage atteint : '+floorN;
+  deadP.classList.remove('hidden');
+}
+
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  const map2={'w':[0,-1],'arrowup':[0,-1],'s':[0,1],'arrowdown':[0,1],'a':[-1,0],'arrowleft':[-1,0],'d':[1,0],'arrowright':[1,0]};
+  if(map2[k]){e.preventDefault();playerTurn(map2[k][0],map2[k][1]);}
+});
+document.getElementById('play').onclick=()=>{tone(660);reset();};
+document.getElementById('retry').onclick=()=>{tone(660);reset();};
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  if(state==='menu'){return;}
+  const VR=8;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const d=Math.hypot(c-player.c,r-player.r);
+    if(d<=VR) seen[r][c]=true;
+    if(!seen[r][c])continue;
+    const visible=d<=VR;
+    const x=c*TS,y=r*TS;
+    if(map[r][c]===0){
+      ctx.fillStyle=visible?'#151a3a':'#0c0f22';
+      ctx.fillRect(x,y,TS-1,TS-1);
+    }
+  }
+  if(seen[stairs.r]&&seen[stairs.r][stairs.c]){
+    ctx.fillStyle='#7fffb0';ctx.font='16px monospace';ctx.textAlign='center';
+    ctx.fillText('▼',stairs.c*TS+TS/2,stairs.r*TS+TS/2+6);
+  }
+  for(const it of items){
+    if(!seen[it.r][it.c])continue;
+    ctx.fillStyle= it.type==='potion' ? '#ff5fd1':'#ffd35f';
+    ctx.beginPath();ctx.arc(it.c*TS+TS/2,it.r*TS+TS/2,5,0,7);ctx.fill();
+  }
+  for(const m of monsters){
+    if(m.hp<=0||!seen[m.r][m.c])continue;
+    const d=Math.hypot(m.c-player.c,m.r-player.r);
+    ctx.globalAlpha= d<=VR?1:0.35;
+    ctx.fillStyle=m.col;ctx.beginPath();ctx.arc(m.c*TS+TS/2,m.r*TS+TS/2,7,0,7);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(m.c*TS+2,m.r*TS-4,TS-6,3);
+    ctx.fillStyle='#ff2e6e';ctx.fillRect(m.c*TS+2,m.r*TS-4,(TS-6)*(m.hp/m.max),3);
+    ctx.globalAlpha=1;
+  }
+  ctx.fillStyle='#7fffb0';ctx.shadowColor='#7fffb0';ctx.shadowBlur=10;
+  ctx.beginPath();ctx.arc(player.c*TS+TS/2,player.r*TS+TS/2,7,0,7);ctx.fill();ctx.shadowBlur=0;
+
+  ctx.fillStyle='#fff';ctx.font='13px "Segoe UI",sans-serif';ctx.textAlign='left';
+  ctx.fillText(log,10,H-10);
+}
+function loop(){draw();requestAnimationFrame(loop);}
+player={c:2,r:2,hp:10,max:10,atk:2};map=[];for(let r=0;r<ROWS;r++)map.push(new Array(COLS).fill(1));
+monsters=[];items=[];stairs={c:0,r:0};seen=[];for(let r=0;r<ROWS;r++)seen.push(new Array(COLS).fill(false));
+log='';
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

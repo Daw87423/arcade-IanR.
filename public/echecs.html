@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Néon Échecs</title>
+<script>if(!localStorage.getItem('arcade_token'))location.replace('index.html');</script>
+<style>
+  :root{--bg:#06060f;--neon:#39f6ff;--ink:#dfe9ff;--dim:#6a7596}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#06060f;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;gap:12px;
+    overflow:hidden;-webkit-tap-highlight-color:transparent;user-select:none;}
+  h1{font-size:clamp(18px,5vw,28px);letter-spacing:.2em;font-weight:800;text-transform:uppercase;
+    color:#fff;text-shadow:0 0 8px var(--neon),0 0 20px #ff2e6e}
+  .wrap{position:relative;width:min(92vw,480px);aspect-ratio:1/1}
+  canvas{width:100%;height:100%;display:block;border-radius:10px;background:#0b0b1a;border:1px solid #16224a;
+    box-shadow:0 0 0 1px #0a1228,0 24px 60px -20px #000;touch-action:none;cursor:pointer}
+  .status{font-size:14px;color:var(--dim);min-height:20px}
+  .status b{color:#fff}
+  .panel{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    background:rgba(6,6,15,.9);backdrop-filter:blur(3px);border-radius:10px;text-align:center;padding:24px}
+  .panel.hidden{display:none}
+  .panel .big{font-size:clamp(18px,5vw,26px);font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#fff}
+  .panel p{font-size:13px;color:var(--dim);max-width:34ch;line-height:1.7}
+  button{font:inherit;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#06060f;background:var(--neon);
+    border:none;border-radius:10px;padding:13px 28px;cursor:pointer;box-shadow:0 0 20px -3px var(--neon)}
+  .hint{font-size:12px;color:var(--dim);text-align:center;max-width:92vw}
+</style>
+</head>
+<body>
+  <h1>Néon Échecs</h1>
+  <div class="status" id="status">Trait aux <b>Blancs</b></div>
+  <div class="wrap">
+    <canvas id="c" width="480" height="480"></canvas>
+    <div class="panel hidden" id="end">
+      <div class="big" id="endtitle">Échec et mat</div>
+      <p id="endstats"></p>
+      <button id="retry">Rejouer</button>
+    </div>
+  </div>
+  <div class="hint">Tu joues les Blancs · clique une pièce puis une case de destination · l'IA joue les Noirs</div>
+
+<script src="auth.js"></script>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height,SQ=W/8;
+const statusEl=document.getElementById('status'),endP=document.getElementById('end');
+// pièces originales, dessinées en vectoriel (pas de glyphes Unicode)
+
+let actx;function tone(f,d=.08,t='sine',v=.05){try{if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  const o=actx.createOscillator(),g=actx.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(actx.destination);
+  o.start();g.gain.exponentialRampToValueAtTime(.0001,actx.currentTime+d);o.stop(actx.currentTime+d);}catch(e){}}
+
+// ---------- état & règles ----------
+function initialBoard(){
+  const b=Array.from({length:8},()=>Array(8).fill(null));
+  const back=['r','n','b','q','k','b','n','r'];
+  for(let c=0;c<8;c++){
+    b[0][c]={type:back[c],color:'b'}; b[1][c]={type:'p',color:'b'};
+    b[6][c]={type:'p',color:'w'}; b[7][c]={type:back[c],color:'w'};
+  }
+  return b;
+}
+function attacksFrom(board,r,c){
+  const piece=board[r][c]; if(!piece) return [];
+  const color=piece.color, out=[];
+  if(piece.type==='p'){
+    const dr=color==='w'?-1:1;
+    for(const dc of [-1,1]){const tr=r+dr,tc=c+dc; if(tr>=0&&tr<8&&tc>=0&&tc<8) out.push([tr,tc]);}
+  } else if(piece.type==='n'){
+    for(const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]){
+      const tr=r+dr,tc=c+dc; if(tr>=0&&tr<8&&tc>=0&&tc<8) out.push([tr,tc]);}
+  } else if(piece.type==='k'){
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc)continue;
+      const tr=r+dr,tc=c+dc; if(tr>=0&&tr<8&&tc>=0&&tc<8) out.push([tr,tc]); }
+  } else {
+    const dirs= piece.type==='b'?[[-1,-1],[-1,1],[1,-1],[1,1]]
+             : piece.type==='r'?[[-1,0],[1,0],[0,-1],[0,1]]
+             : [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+    for(const [dr,dc] of dirs){
+      let tr=r+dr,tc=c+dc;
+      while(tr>=0&&tr<8&&tc>=0&&tc<8){ out.push([tr,tc]); if(board[tr][tc])break; tr+=dr;tc+=dc; }
+    }
+  }
+  return out;
+}
+function isSquareAttacked(board,r,c,byColor){
+  for(let rr=0;rr<8;rr++)for(let cc=0;cc<8;cc++){
+    const p=board[rr][cc]; if(!p||p.color!==byColor)continue;
+    if(attacksFrom(board,rr,cc).some(([tr,tc])=>tr===r&&tc===c)) return true;
+  }
+  return false;
+}
+function findKing(board,color){
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){const p=board[r][c]; if(p&&p.type==='k'&&p.color===color) return [r,c];}
+  return null;
+}
+function inCheck(board,color){ const k=findKing(board,color); if(!k)return false; return isSquareAttacked(board,k[0],k[1],color==='w'?'b':'w'); }
+
+function pseudoMovesForSquare(state,r,c){
+  const board=state.board, piece=board[r][c], color=piece.color, enemy=color==='w'?'b':'w', moves=[];
+  function addIfOk(tr,tc){
+    if(tr<0||tr>7||tc<0||tc>7)return;
+    const target=board[tr][tc]; if(target&&target.color===color)return;
+    moves.push({fr:r,fc:c,tr,tc,capture:!!target});
+  }
+  if(piece.type==='p'){
+    const dr=color==='w'?-1:1, startRow=color==='w'?6:1, lastRow=color==='w'?0:7;
+    if(board[r+dr] && !board[r+dr][c]){
+      const tr=r+dr;
+      if(tr===lastRow) moves.push({fr:r,fc:c,tr,tc:c,capture:false,promo:'q'});
+      else moves.push({fr:r,fc:c,tr,tc:c,capture:false});
+      if(r===startRow && !board[r+2*dr][c]) moves.push({fr:r,fc:c,tr:r+2*dr,tc:c,capture:false});
+    }
+    for(const dc of [-1,1]){
+      const tr=r+dr,tc=c+dc; if(tr<0||tr>7||tc<0||tc>7)continue;
+      const target=board[tr][tc];
+      if(target && target.color===enemy){
+        if(tr===lastRow) moves.push({fr:r,fc:c,tr,tc,capture:true,promo:'q'});
+        else moves.push({fr:r,fc:c,tr,tc,capture:true});
+      } else if(state.ep && state.ep.r===tr && state.ep.c===tc){
+        moves.push({fr:r,fc:c,tr,tc,capture:true,ep:true});
+      }
+    }
+  } else if(piece.type==='n'){
+    for(const [dr,dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) addIfOk(r+dr,c+dc);
+  } else if(piece.type==='b'||piece.type==='r'||piece.type==='q'){
+    const dirs= piece.type==='b'?[[-1,-1],[-1,1],[1,-1],[1,1]]
+             : piece.type==='r'?[[-1,0],[1,0],[0,-1],[0,1]]
+             : [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+    for(const [dr,dc] of dirs){
+      let tr=r+dr,tc=c+dc;
+      while(tr>=0&&tr<8&&tc>=0&&tc<8){
+        const target=board[tr][tc];
+        if(target){ if(target.color!==color) moves.push({fr:r,fc:c,tr,tc,capture:true}); break; }
+        moves.push({fr:r,fc:c,tr,tc,capture:false}); tr+=dr;tc+=dc;
+      }
+    }
+  } else if(piece.type==='k'){
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc)continue; addIfOk(r+dr,c+dc); }
+    const row=color==='w'?7:0;
+    if(r===row&&c===4){
+      const rightK=color==='w'?state.rights.wk:state.rights.bk;
+      const rightQ=color==='w'?state.rights.wq:state.rights.bq;
+      if(rightK && !board[row][5] && !board[row][6] && board[row][7] && board[row][7].type==='r' && board[row][7].color===color){
+        if(!isSquareAttacked(board,row,4,enemy) && !isSquareAttacked(board,row,5,enemy) && !isSquareAttacked(board,row,6,enemy))
+          moves.push({fr:r,fc:c,tr:row,tc:6,capture:false,castle:'k'});
+      }
+      if(rightQ && !board[row][1] && !board[row][2] && !board[row][3] && board[row][0] && board[row][0].type==='r' && board[row][0].color===color){
+        if(!isSquareAttacked(board,row,4,enemy) && !isSquareAttacked(board,row,3,enemy) && !isSquareAttacked(board,row,2,enemy))
+          moves.push({fr:r,fc:c,tr:row,tc:2,capture:false,castle:'q'});
+      }
+    }
+  }
+  return moves;
+}
+function applyMove(state,move){
+  const board=state.board.map(row=>row.slice());
+  const {fr,fc,tr,tc}=move, piece=board[fr][fc];
+  let rights={...state.rights}, ep=null;
+  if(move.ep) board[fr][tc]=null;
+  board[tr][tc]= move.promo? {type:move.promo,color:piece.color} : piece;
+  board[fr][fc]=null;
+  if(move.castle==='k'){ board[fr][5]=board[fr][7]; board[fr][7]=null; }
+  else if(move.castle==='q'){ board[fr][3]=board[fr][0]; board[fr][0]=null; }
+  if(piece.type==='k'){ if(piece.color==='w'){rights.wk=false;rights.wq=false;} else {rights.bk=false;rights.bq=false;} }
+  if(piece.type==='r'){
+    if(piece.color==='w'){ if(fr===7&&fc===0)rights.wq=false; if(fr===7&&fc===7)rights.wk=false; }
+    else { if(fr===0&&fc===0)rights.bq=false; if(fr===0&&fc===7)rights.bk=false; }
+  }
+  if(tr===7&&tc===0)rights.wq=false; if(tr===7&&tc===7)rights.wk=false;
+  if(tr===0&&tc===0)rights.bq=false; if(tr===0&&tc===7)rights.bk=false;
+  if(piece.type==='p' && Math.abs(tr-fr)===2) ep={r:(tr+fr)/2,c:fc};
+  return {board,turn:state.turn==='w'?'b':'w',rights,ep};
+}
+function legalMoves(state,color){
+  const out=[];
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=state.board[r][c]; if(!p||p.color!==color)continue;
+    for(const m of pseudoMovesForSquare(state,r,c)){
+      const ns=applyMove(state,m);
+      if(!inCheck(ns.board,color)) out.push(m);
+    }
+  }
+  return out;
+}
+
+// ---------- IA ----------
+function evaluate(board){
+  const val={p:100,n:320,b:330,r:500,q:900,k:0};
+  let score=0;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=board[r][c]; if(!p)continue;
+    let v=val[p.type];
+    if(p.type!=='k') v+=(7-(Math.abs(3.5-r)+Math.abs(3.5-c)))*2;
+    score+= p.color==='w'?v:-v;
+  }
+  return score;
+}
+function negamax(state,depth,alpha,beta){
+  const moves=legalMoves(state,state.turn);
+  if(moves.length===0) return inCheck(state.board,state.turn) ? -99000-depth : 0;
+  if(depth===0){ const a=evaluate(state.board); return state.turn==='w'?a:-a; }
+  moves.sort((a,b)=>(b.capture?1:0)-(a.capture?1:0));
+  let best=-Infinity;
+  for(const m of moves){
+    const ns=applyMove(state,m);
+    const val=-negamax(ns,depth-1,-beta,-alpha);
+    if(val>best) best=val;
+    if(best>alpha) alpha=best;
+    if(alpha>=beta) break;
+  }
+  return best;
+}
+function bestMove(state,depth){
+  const moves=legalMoves(state,state.turn);
+  if(!moves.length) return null;
+  moves.sort((a,b)=>(b.capture?1:0)-(a.capture?1:0));
+  let best=null,bestVal=-Infinity,alpha=-Infinity,beta=Infinity;
+  for(const m of moves){
+    const ns=applyMove(state,m);
+    const val=-negamax(ns,depth-1,-beta,-alpha);
+    if(val>bestVal){bestVal=val;best=m;}
+    if(bestVal>alpha) alpha=bestVal;
+  }
+  return best;
+}
+
+// ---------- jeu ----------
+let state,selected,selMoves,over,lastMove;
+function reset(){
+  state={board:initialBoard(),turn:'w',rights:{wk:true,wq:true,bk:true,bq:true},ep:null};
+  selected=null;selMoves=[];over=false;lastMove=null;
+  endP.classList.add('hidden');
+  setStatus();
+}
+function setStatus(){
+  if(over)return;
+  const chk=inCheck(state.board,state.turn);
+  statusEl.innerHTML = state.turn==='w'
+    ? ('Trait aux <b>Blancs</b>'+(chk?' — Échec !':''))
+    : ('L\'IA réfléchit (Noirs)'+(chk?' — Échec !':''));
+}
+function endGame(){
+  const mv=legalMoves(state,state.turn);
+  if(mv.length===0){
+    over=true;
+    if(inCheck(state.board,state.turn)){
+      const winner= state.turn==='w' ? 'Les Noirs' : 'Les Blancs';
+      document.getElementById('endtitle').textContent='Échec et mat';
+      document.getElementById('endstats').textContent=winner+' remportent la partie.';
+    } else {
+      document.getElementById('endtitle').textContent='Pat';
+      document.getElementById('endstats').textContent='Partie nulle : aucun coup légal disponible.';
+    }
+    endP.classList.remove('hidden');
+    return true;
+  }
+  return false;
+}
+function playerMove(m){
+  state=applyMove(state,m); lastMove=m; tone(440,.06,'square',.05);
+  selected=null;selMoves=[];
+  if(endGame())return;
+  setStatus();
+  setTimeout(aiMove,260);
+}
+function aiMove(){
+  if(over)return;
+  const m=bestMove(state,3);
+  if(!m)return;
+  state=applyMove(state,m); lastMove=m; tone(300,.08,'sine',.05);
+  if(endGame())return;
+  setStatus();
+}
+cv.addEventListener('click',e=>{
+  if(over||state.turn!=='w')return;
+  const rect=cv.getBoundingClientRect();
+  const x=(e.clientX-rect.left)*(W/rect.width), y=(e.clientY-rect.top)*(H/rect.height);
+  const c=Math.floor(x/SQ), r=Math.floor(y/SQ);
+  if(r<0||r>7||c<0||c>7)return;
+  if(selected){
+    const m=selMoves.find(mm=>mm.tr===r&&mm.tc===c);
+    if(m){ playerMove(m); return; }
+    const p=state.board[r][c];
+    if(p && p.color==='w'){ selected=[r,c]; selMoves=legalMoves(state,'w').filter(mm=>mm.fr===r&&mm.fc===c); }
+    else { selected=null;selMoves=[]; }
+  } else {
+    const p=state.board[r][c];
+    if(p && p.color==='w'){ selected=[r,c]; selMoves=legalMoves(state,'w').filter(mm=>mm.fr===r&&mm.fc===c); }
+  }
+});
+document.getElementById('retry').onclick=()=>{tone(660);reset();};
+
+function drawPiece(type,color,cx,cy,s){
+  const ox=cx-s/2, oy=cy-s/2;
+  const px=nx=>ox+nx*s, py=ny=>oy+ny*s;
+  const m=(nx,ny)=>ctx.moveTo(px(nx),py(ny));
+  const l=(nx,ny)=>ctx.lineTo(px(nx),py(ny));
+  const q=(cnx,cny,nx,ny)=>ctx.quadraticCurveTo(px(cnx),py(cny),px(nx),py(ny));
+  const circPath=(nx,ny,rf)=>{ctx.moveTo(px(nx)+rf*s,py(ny));ctx.arc(px(nx),py(ny),rf*s,0,Math.PI*2);};
+
+  ctx.save();
+  const fillCol= color==='w' ? '#eef4ff' : '#141a3a';
+  const strokeCol= color==='w' ? '#1a2140' : '#39f6ff';
+  ctx.fillStyle=fillCol; ctx.strokeStyle=strokeCol;
+  ctx.lineWidth=Math.max(1.1,s*0.028); ctx.lineJoin='round';
+  if(color==='b'){ ctx.shadowColor='#39f6ff'; ctx.shadowBlur=s*0.12; }
+
+  if(type==='n'){
+    ctx.beginPath();
+    m(0.24,1.00); l(0.24,0.86); l(0.20,0.86); l(0.18,0.72); l(0.28,0.58);
+    q(0.24,0.44, 0.38,0.38);
+    l(0.32,0.28);
+    q(0.38,0.18, 0.52,0.18);
+    l(0.64,0.12);
+    q(0.74,0.10, 0.76,0.20);
+    l(0.68,0.25);
+    q(0.76,0.30, 0.73,0.40);
+    l(0.60,0.36);
+    q(0.50,0.38, 0.48,0.48);
+    l(0.62,0.64);
+    q(0.74,0.72, 0.76,0.86);
+    l(0.70,0.86);
+    l(0.70,1.00);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); circPath(0.58,0.24,0.028); ctx.fillStyle=strokeCol; ctx.fill();
+    ctx.restore(); return;
+  }
+
+  ctx.beginPath();
+  m(0.20,1.00); l(0.80,1.00); l(0.73,0.87); l(0.27,0.87); ctx.closePath();
+  m(0.43,0.87); l(0.57,0.87); l(0.55,0.58); l(0.45,0.58); ctx.closePath();
+  m(0.30,0.58); l(0.70,0.58); l(0.61,0.46); l(0.39,0.46); ctx.closePath();
+
+  if(type==='p'){
+    circPath(0.5,0.32,0.15);
+  } else if(type==='b'){
+    circPath(0.5,0.30,0.17);
+    circPath(0.5,0.11,0.045);
+  } else if(type==='r'){
+    m(0.28,0.46); l(0.28,0.30); l(0.36,0.30); l(0.36,0.23); l(0.44,0.23); l(0.44,0.30);
+    l(0.56,0.30); l(0.56,0.23); l(0.64,0.23); l(0.64,0.30); l(0.72,0.30); l(0.72,0.46);
+    ctx.closePath();
+  } else if(type==='q'){
+    m(0.25,0.46); l(0.20,0.18); l(0.34,0.30); l(0.5,0.08); l(0.66,0.30); l(0.80,0.18); l(0.75,0.46);
+    ctx.closePath();
+    circPath(0.20,0.18,0.04); circPath(0.5,0.08,0.05); circPath(0.80,0.18,0.04);
+  } else if(type==='k'){
+    m(0.27,0.46); l(0.23,0.24); l(0.5,0.34); l(0.77,0.24); l(0.73,0.46);
+    ctx.closePath();
+    m(0.465,0.22); l(0.535,0.22); l(0.535,0.15); l(0.585,0.15); l(0.585,0.10); l(0.415,0.10); l(0.415,0.15); l(0.465,0.15);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  if(type==='b'){
+    ctx.beginPath(); m(0.40,0.22); l(0.60,0.34); ctx.lineWidth=Math.max(1,s*0.02); ctx.stroke();
+  }
+  ctx.restore();
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const light=(r+c)%2===0;
+    ctx.fillStyle= light? '#1b2450' : '#12183a';
+    ctx.fillRect(c*SQ,r*SQ,SQ,SQ);
+  }
+  if(lastMove){
+    ctx.fillStyle='rgba(255,212,0,.25)';
+    ctx.fillRect(lastMove.fc*SQ,lastMove.fr*SQ,SQ,SQ);
+    ctx.fillRect(lastMove.tc*SQ,lastMove.tr*SQ,SQ,SQ);
+  }
+  if(selected){
+    ctx.fillStyle='rgba(57,246,255,.35)';
+    ctx.fillRect(selected[1]*SQ,selected[0]*SQ,SQ,SQ);
+    for(const m of selMoves){
+      ctx.fillStyle= m.capture ? 'rgba(255,46,110,.45)' : 'rgba(255,255,255,.28)';
+      ctx.beginPath();ctx.arc(m.tc*SQ+SQ/2,m.tr*SQ+SQ/2, m.capture?SQ*0.42:SQ*0.14,0,7);ctx.fill();
+    }
+  }
+  const kW=findKing(state.board,'w'), kB=findKing(state.board,'b');
+  if(kW && inCheck(state.board,'w')){ ctx.fillStyle='rgba(255,46,110,.4)'; ctx.fillRect(kW[1]*SQ,kW[0]*SQ,SQ,SQ); }
+  if(kB && inCheck(state.board,'b')){ ctx.fillStyle='rgba(255,46,110,.4)'; ctx.fillRect(kB[1]*SQ,kB[0]*SQ,SQ,SQ); }
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=state.board[r][c]; if(!p)continue;
+    drawPiece(p.type, p.color, c*SQ+SQ/2, r*SQ+SQ/2, SQ);
+  }
+}
+function loop(){draw();requestAnimationFrame(loop);}
+state={board:initialBoard(),turn:'w',rights:{wk:true,wq:true,bk:true,bq:true},ep:null};
+selected=null;selMoves=[];over=false;lastMove=null;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
